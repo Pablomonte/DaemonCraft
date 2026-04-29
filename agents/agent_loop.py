@@ -848,7 +848,7 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 30):
         skip_context_files=True,
         skip_memory=False,
         reasoning_config={"enabled": False},
-        max_iterations=8,
+        max_iterations=80,
     )
 
     global current_agent
