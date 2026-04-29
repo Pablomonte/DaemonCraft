@@ -197,7 +197,10 @@ def load_profile_config(profile_name: str) -> dict:
     profile_dir = get_profile_dir(profile_name)
     config_path = profile_dir / "config.yaml"
 
-    # Load profile .env so credentials (MINIMAX_API_KEY, etc.) are available
+    # Load profile .env so credentials (MINIMAX_API_KEY, etc.) are available.
+    # Only set vars that are NOT already in os.environ — the global ~/.hermes/.env
+    # is loaded first by run_agent.py and should take precedence. Also strip
+    # inline comments (e.g. KEY=val  # comment) so values stay clean.
     env_path = profile_dir / ".env"
     if env_path.exists():
         for line in env_path.read_text().splitlines():
@@ -206,8 +209,25 @@ def load_profile_config(profile_name: str) -> dict:
                 continue
             if "=" in line:
                 key, value = line.split("=", 1)
-                os.environ[key.strip()] = value.strip().strip('"').strip("'")
-                print(f"[loop] Loaded env: {key.strip()}")
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                # Strip inline comments: everything after first unquoted " #"
+                in_quote = None
+                comment_idx = None
+                for i, ch in enumerate(value):
+                    if ch in ('"', "'"):
+                        if in_quote == ch:
+                            in_quote = None
+                        elif in_quote is None:
+                            in_quote = ch
+                    elif ch == "#" and in_quote is None and i > 0 and value[i - 1] == " ":
+                        comment_idx = i - 1
+                        break
+                if comment_idx is not None:
+                    value = value[:comment_idx].rstrip()
+                if key and key not in os.environ:
+                    os.environ[key] = value
+                    print(f"[loop] Loaded env: {key}")
 
     config = {}
     if config_path.exists():
