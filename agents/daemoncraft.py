@@ -399,7 +399,7 @@ def start_agent(
     cast_name: str,
     agent_name: str,
     port: int,
-    interval: int = 30,
+    interval: int = 7,
     always_chat: bool = False,
     max_chat_chars: int | None = None,
 ) -> int:

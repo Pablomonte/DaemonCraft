@@ -802,7 +802,7 @@ def start_daemon_guardian():
 # Main loop
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 30):
+def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
     """Run an AIAgent in a persistent event-driven loop."""
     config, profile_dir = load_profile_config(profile_name)
 
@@ -828,6 +828,13 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 30):
 
     system_prompt = build_system_prompt(profile_dir)
     mc_api_url = os.getenv("MC_API_URL", "")
+
+    # Import minecraft_tools so tools are registered in Hermes registry
+    try:
+        import hermescraft.minecraft_tools
+        print("[loop] Minecraft tools registered")
+    except Exception as e:
+        print(f"[loop] Warning: could not register minecraft tools: {e}")
 
     print(f"[loop] Starting persistent agent: {profile_name}")
     print(f"[loop] Model: {model}")
@@ -1003,7 +1010,7 @@ def main():
     parser = argparse.ArgumentParser(description="Hermes-native persistent agent loop")
     parser.add_argument("--profile", required=True, help="Hermes profile name")
     parser.add_argument("--prompt", default="Begin.", help="Initial prompt")
-    parser.add_argument("--interval", type=int, default=30, help="Seconds between idle turns")
+    parser.add_argument("--interval", type=int, default=7, help="Seconds between idle turns")
     args = parser.parse_args()
 
     run_agent_loop(args.profile, args.prompt, args.interval)

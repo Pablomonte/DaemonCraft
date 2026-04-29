@@ -84,7 +84,13 @@ import {
   recipeDiagnostics,
   recipeIngredientCounts,
 } from './lib/action_feedback.js';
-import { Camera } from 'mine-photo';
+let Camera = null;
+try {
+  const minePhoto = await import('mine-photo');
+  Camera = minePhoto.Camera;
+} catch (e) {
+  console.warn('[Photo] mine-photo unavailable (headless?), screenshots disabled:', e.message);
+}
 import { mineflayer as mineflayerViewer } from 'prismarine-viewer';
 import puppeteer from 'puppeteer';
 
@@ -593,25 +599,29 @@ async function createBotImpl() {
       });
 
       // Initialize ray-tracing camera for screenshots
-      try {
-        photoCamera = new Camera(bot);
-        photoCamera.resize(854, 480);
-        photoCamera.samplesPerPixel = 8;        // default 8 (was 16)
-        photoCamera.renderDistance = 48;
-        photoCamera.maxBounces = 2;
-        photoCamera.fov = 90;
-        photoScanReady = false;
-        log('[Photo] Starting initial world scan...');
-        photoScanPromise = photoCamera.scan(48, 24, 48).then(() => {
-          photoScanReady = true;
-          log(`[Photo] Camera scan complete — screenshots ready`);
-        }).catch(err => {
-          log(`[Photo] Camera scan failed: ${err.message}`);
+      if (!Camera) {
+        log('[Photo] Camera disabled — no renderer available');
+      } else {
+        try {
+          photoCamera = new Camera(bot);
+          photoCamera.resize(854, 480);
+          photoCamera.samplesPerPixel = 8;        // default 8 (was 16)
+          photoCamera.renderDistance = 48;
+          photoCamera.maxBounces = 2;
+          photoCamera.fov = 90;
           photoScanReady = false;
-        });
-        log(`[Photo] Camera initialized, background scan started...`);
-      } catch (err) {
-        log(`[Photo] Camera init failed: ${err.message}`);
+          log('[Photo] Starting initial world scan...');
+          photoScanPromise = photoCamera.scan(48, 24, 48).then(() => {
+            photoScanReady = true;
+            log(`[Photo] Camera scan complete — screenshots ready`);
+          }).catch(err => {
+            log(`[Photo] Camera scan failed: ${err.message}`);
+            photoScanReady = false;
+          });
+          log(`[Photo] Camera initialized, background scan started...`);
+        } catch (err) {
+          log(`[Photo] Camera init failed: ${err.message}`);
+        }
       }
 
       botReady = true;
@@ -761,8 +771,8 @@ async function sendToMcChat(text, { source = "auto" } = {}) {
       dropped++;
       continue;
     }
+    const b = ensureBot();
     try {
-      const b = ensureBot();
       b.chat(frag);
     } catch (e) {
       log(`[chat] b.chat() threw: ${e.message}`);
@@ -771,7 +781,7 @@ async function sendToMcChat(text, { source = "auto" } = {}) {
     }
     recentFragments.push(now);
     sent++;
-    chatLog.push({ time: Date.now(), from: botName, message: frag, self: true });
+    chatLog.push({ time: Date.now(), from: b.username, message: frag, self: true });
     if (chatLog.length > MAX_LOG) chatLog.shift();
     broadcastDashboard('chat', chatLog.slice(-30));
     if (sent < fragments.length) await sleep(MC_FRAGMENT_DELAY_MS);
@@ -3054,6 +3064,7 @@ async collect({ block, count = 1 }) {
       log('[Screenshot] Launching puppeteer...');
       viewerBrowser = await puppeteer.launch({
         headless: 'new',
+        executablePath: '/usr/bin/chromium',
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',

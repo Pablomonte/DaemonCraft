@@ -182,7 +182,7 @@ def _fmt(resp: dict) -> str:
 
 def check_minecraft_available() -> bool:
     try:
-        _api_get("/health", timeout=3)
+        _api_get("/status", timeout=3)
         return True
     except Exception:
         return False

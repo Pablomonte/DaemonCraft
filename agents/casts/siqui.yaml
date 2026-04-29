@@ -1,0 +1,35 @@
+# Siqui Cast — Rolemaster Companion for Raspberry Pi 4
+# Hybrid: Pamplinas world-manipulation + Companion warmth
+# Uses Kimi OAuth (via ~/.kimi/credentials/) — no API key needed
+# NOTE: Screenshots via prismarine-viewer + puppeteer + system chromium
+
+name: siqui
+description: |
+  Siqui, the Holodeck Companion.
+  A single agent who creates adventures, manipulates the Minecraft world,
+  and plays alongside human friends. Born on a Raspberry Pi, connected
+  to a world beyond its size.
+
+mode: rolemaster
+soul_file: SOUL-rolemaster.md
+
+agents:
+  - name: Siqui
+    template: rolemaster/siqui
+    port: 3002
+    model: kimi-for-coding
+    provider: kimi-coding
+    base_url: https://api.kimi.com/coding/v1
+    always_chat: true
+    extra_toolsets:
+      - vision
+    gamemode: creative
+    max_chat_chars: 480
+    chat_format: say_lines
+
+timeline:
+  unit: minecraft_days
+  dawn: 0
+  noon: 6000
+  dusk: 12000
+  midnight: 18000

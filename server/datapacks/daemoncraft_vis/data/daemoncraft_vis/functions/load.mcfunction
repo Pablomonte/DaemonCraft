@@ -24,5 +24,5 @@ team add reed
 team modify reed color dark_aqua
 team add flint
 team modify flint color dark_gray
-team add pamplinas
-team modify pamplinas color light_purple
+team add siqui
+team modify siqui color light_purple
