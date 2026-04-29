@@ -345,8 +345,9 @@ def _handle_mc_build(args: dict, **kwargs) -> str:
         for coord in ("x", "y", "z"):
             if coord not in args:
                 return f"Error: {coord} is required for place"
-        payload = {"block": args["block"], "x": args["x"], "y": args["y"], "z": args["z"]}
-        return _fmt(_api_post("/action/place", payload))
+        # Use /setblock command directly (works in creative, no pathfinder needed)
+        cmd = f"/setblock {args['x']} {args['y']} {args['z']} {args['block']}"
+        return _fmt(_api_post("/chat/send", {"message": cmd}))
 
     if action == "fill":
         if "block" not in args:
@@ -354,13 +355,11 @@ def _handle_mc_build(args: dict, **kwargs) -> str:
         for coord in ("x1", "y1", "z1", "x2", "y2", "z2"):
             if coord not in args:
                 return f"Error: {coord} is required for fill"
-        payload = {
-            "block": args["block"],
-            "x1": args["x1"], "y1": args["y1"], "z1": args["z1"],
-            "x2": args["x2"], "y2": args["y2"], "z2": args["z2"],
-            "hollow": args.get("hollow", False),
-        }
-        return _fmt(_api_post("/action/place_fill", payload))
+        # Use /fill command directly (works in creative, no pathfinder needed)
+        hollow = args.get("hollow", False)
+        mode = "hollow" if hollow else "replace"
+        cmd = f"/fill {args['x1']} {args['y1']} {args['z1']} {args['x2']} {args['y2']} {args['z2']} {args['block']} {mode}"
+        return _fmt(_api_post("/chat/send", {"message": cmd}))
 
     if action == "interact":
         for coord in ("x", "y", "z"):

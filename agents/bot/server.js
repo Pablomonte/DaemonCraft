@@ -3718,11 +3718,18 @@ const httpServer = http.createServer(async (req, res) => {
         return respond(res, 400, { ok: false, error: `Unknown action "${actionName}". Available: ${available}` });
       }
 
-      const result = await actionFn(body);
-      actionHistory.push({ action: actionName, status: 'done', time: Date.now() });
-      if (actionHistory.length > MAX_ACTION_HISTORY) actionHistory.shift();
-      broadcastDashboard('actions', actionHistory.slice(-50));
-      return respond(res, 200, { ok: true, ...result, state: briefState() });
+      try {
+        const result = await actionFn(body);
+        actionHistory.push({ action: actionName, status: 'done', time: Date.now() });
+        if (actionHistory.length > MAX_ACTION_HISTORY) actionHistory.shift();
+        broadcastDashboard('actions', actionHistory.slice(-50));
+        return respond(res, 200, { ok: true, ...result, state: briefState() });
+      } catch (err) {
+        actionHistory.push({ action: actionName, status: 'error', time: Date.now() });
+        if (actionHistory.length > MAX_ACTION_HISTORY) actionHistory.shift();
+        broadcastDashboard('actions', actionHistory.slice(-50));
+        return respond(res, 500, { ok: false, error: err.message, state: briefState() });
+      }
     }
 
     respond(res, 404, { ok: false, error: `Not found: ${req.method} ${path}` });
