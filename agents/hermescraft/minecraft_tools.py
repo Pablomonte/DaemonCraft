@@ -1444,9 +1444,11 @@ def _handle_mc_story(args: dict, **kwargs) -> str:
         for s in sensors:
             name = s.get("name")
             poll_command = s.get("poll_command")
-            # Execute poll command for dummy sensors (proximity, zone, etc.)
-            if poll_command:
-                _api_post("/chat/send", {"message": poll_command})
+            # NOTE: Poll commands are executed by the quest engine via rcon-cli,
+            # NOT via chat. Sending /execute commands to public chat spams players
+            # and exposes internals. We only read scores here.
+            # If manual execution is needed, use mc_command directly.
+            _ = poll_command  # keep available for reference
             # Read score via native API
             result = _api_get(f"/scoreboard?objective={name}&player={player}")
             if result.get("ok"):

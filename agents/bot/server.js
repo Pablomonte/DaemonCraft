@@ -755,14 +755,16 @@ function byteCap(s) {
 }
 
 async function sendToMcChat(text, { source = "auto" } = {}) {
+  // ALWAYS filter SAY: prefix from all lines, regardless of source.
   // When source is not "tool", only lines starting with "SAY:" go to Minecraft chat.
   // Everything else is internal reasoning and must stay silent.
   // Exception: commands starting with '/' are always sent (they are not chat).
-  // Filter out meaningless minimal responses like single dots.
+  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+  const commandLines = lines.filter(l => l.startsWith("/"));
+  const sayLines = lines.filter(l => /^SAY:\s*/i.test(l)).map(l => l.replace(/^SAY:\s*/i, ""));
+  const otherLines = lines.filter(l => !l.startsWith("/") && !/^SAY:\s*/i.test(l));
+
   if (source !== "tool") {
-    const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
-    const commandLines = lines.filter(l => l.startsWith("/"));
-    const sayLines = lines.filter(l => /^SAY:\s*/i.test(l)).map(l => l.replace(/^SAY:\s*/i, ""));
     if (commandLines.length > 0) {
       text = commandLines.join(" ");
     } else if (sayLines.length === 0) {
@@ -770,7 +772,15 @@ async function sendToMcChat(text, { source = "auto" } = {}) {
     } else {
       text = sayLines.join(" ");
     }
+  } else {
+    // source === "tool": keep commands and SAY lines, drop raw reasoning
+    const toolLines = [...commandLines, ...sayLines];
+    if (toolLines.length === 0) {
+      return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "no_chat_lines" };
+    }
+    text = toolLines.join(" ");
   }
+
   // Drop single punctuation and noise that would clutter the chat window
   const trimmed = text.trim();
   if (/^[.\-]+$/.test(trimmed) || /^\d{1,2}$/.test(trimmed)) {

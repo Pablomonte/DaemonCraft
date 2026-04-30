@@ -80,7 +80,7 @@ def send_heartbeat(next_turn_in: float | None = None, turn_in_progress: bool = F
 
 
 def _clean_response_for_chat(text: str) -> str:
-    """Best-effort cleanup. Filter out meaningless minimal responses."""
+    """Best-effort cleanup. Enforce SAY: format and filter noise."""
     if not text:
         return ""
     text = text.strip()
@@ -89,7 +89,31 @@ def _clean_response_for_chat(text: str) -> str:
         return ""
     if len(text) <= 2 and text.isdigit():
         return ""
-    return text
+
+    lines = text.split("\n")
+    say_lines = [l.strip() for l in lines if l.strip().startswith("SAY:")]
+    cmd_lines = [l.strip() for l in lines if l.strip().startswith("/")]
+    other_lines = [l.strip() for l in lines if l.strip() and not l.strip().startswith("SAY:") and not l.strip().startswith("/")]
+
+    # If the model already used SAY:, trust it (extract only SAY lines)
+    if say_lines:
+        return "\n".join(say_lines)
+
+    # If there are only commands, do not chat
+    if cmd_lines and not other_lines:
+        return ""
+
+    # If there are short chat-like lines without SAY:, auto-prefix them
+    # This prevents the model from sending raw text that bypasses the filter
+    auto_say = []
+    for line in other_lines:
+        if len(line) <= 180:
+            auto_say.append(f"SAY: {line}")
+        # Long non-SAY lines are assumed to be reasoning and dropped
+    if auto_say:
+        return "\n".join(auto_say)
+
+    return ""
 
 
 def _post_chat(text: str) -> None:
@@ -665,7 +689,7 @@ def start_quest_engine():
 # Daemon Guardian — keep Pamplinas in creative + invulnerable
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
 
-DAEMON_GUARDIAN_INTERVAL = 5  # seconds
+DAEMON_GUARDIAN_INTERVAL = 60  # seconds (was 5, too spammy)
 _GODMODE_FILE = Path.home() / ".local" / "share" / "daemoncraft" / "rolemaster" / "godmode"
 
 
@@ -738,10 +762,19 @@ def _daemon_guardian_loop():
             "water_breathing": any("water" in k.lower() and "breathing" in k.lower() for k in effects),
         }
 
+    consecutive_failures = 0
     while True:
         _time.sleep(DAEMON_GUARDIAN_INTERVAL)
         try:
             if not _godmode_enabled():
+                consecutive_failures = 0
+                continue
+
+            # If effects keep not persisting, back off to avoid spamming the server
+            if consecutive_failures >= 3:
+                print(f"[daemon_guardian] Effects not persisting after 3 attempts. Backing off for 5 min.", flush=True)
+                _time.sleep(240)  # extra 4 min (total 5 min from last attempt)
+                consecutive_failures = 0
                 continue
 
             # Enforce creative mode ONLY if not already creative
@@ -758,7 +791,9 @@ def _daemon_guardian_loop():
 
             # Check which effects are missing, apply only those
             effects = _check_effects()
+            missing = []
             if not effects["resistance"]:
+                missing.append("resistance")
                 payload = json.dumps({
                     "message": f"/effect give {BOT_USERNAME} minecraft:resistance 999999 255 true"
                 }).encode("utf-8")
@@ -769,9 +804,9 @@ def _daemon_guardian_loop():
                     method="POST",
                 )
                 urllib.request.urlopen(req, timeout=3)
-                print("[daemon_guardian] Applied resistance", flush=True)
 
             if not effects["fire_resistance"]:
+                missing.append("fire_resistance")
                 payload = json.dumps({
                     "message": f"/effect give {BOT_USERNAME} minecraft:fire_resistance 999999 0 true"
                 }).encode("utf-8")
@@ -782,9 +817,9 @@ def _daemon_guardian_loop():
                     method="POST",
                 )
                 urllib.request.urlopen(req, timeout=3)
-                print("[daemon_guardian] Applied fire_resistance", flush=True)
 
             if not effects["water_breathing"]:
+                missing.append("water_breathing")
                 payload = json.dumps({
                     "message": f"/effect give {BOT_USERNAME} minecraft:water_breathing 999999 0 true"
                 }).encode("utf-8")
@@ -795,7 +830,12 @@ def _daemon_guardian_loop():
                     method="POST",
                 )
                 urllib.request.urlopen(req, timeout=3)
-                print("[daemon_guardian] Applied water_breathing", flush=True)
+
+            if missing:
+                print(f"[daemon_guardian] Applied missing effects: {', '.join(missing)}", flush=True)
+                consecutive_failures += 1
+            else:
+                consecutive_failures = 0
 
         except Exception:
             pass
@@ -928,8 +968,27 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                     f"- {m.get('from', 'Player')}: {m.get('message', '')}"
                     for m in msgs
                 ])
+                # Detect language from player messages to reinforce response language
+                player_langs = set()
+                for m in msgs:
+                    txt = m.get("message", "")
+                    # Simple heuristic: if message contains common Spanish words/patterns
+                    spanish_markers = ["¿", "¡", "está", "estás", "cómo", "qué", "vamos", "hola", "bien", "para", "con", "por", "una", "tu", "te", "se", "lo", "la", "el", "en", "de", "que", "y", "a"]
+                    if any(marker in txt.lower() for marker in spanish_markers):
+                        player_langs.add("es")
+                    else:
+                        player_langs.add("en")
+                lang_hint = ""
+                if "es" in player_langs and "en" not in player_langs:
+                    lang_hint = "The player is writing in SPANISH. You MUST respond in SPANISH. "
+                elif "es" in player_langs:
+                    lang_hint = "The player may be writing in Spanish. Respond in the SAME LANGUAGE they use. "
+
                 prompt = (
                     f"New chat messages — respond immediately:\n{chat_lines}\n\n"
+                    f"{lang_hint}"
+                    f"CRITICAL: Use SAY: format for ALL player-facing text. "
+                    f"MAX 180 characters per SAY: line. ONE image/sensation per line. "
                     f"If this is a new task or request from the player, handle it right away. "
                     f"Remember: if the player gives you a NEW task that replaces your current work, "
                     f"FIRST call mc_plan(action='clear_goal') to wipe the old plan, "
@@ -1084,7 +1143,21 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                             and not chat_msg.startswith("Operation interrupted")
                             and not mc_chat_used
                         ):
-                            _post_chat(chat_msg)
+                            # Enforce SAY: format — if the model forgot, nudge it for next turn
+                            has_say = any(line.strip().startswith("SAY:") for line in chat_msg.split("\n"))
+                            has_command = any(line.strip().startswith("/") for line in chat_msg.split("\n"))
+                            if not has_say and not has_command:
+                                print(f"[loop] Response lacks SAY: format — nudging model", flush=True)
+                                conversation_history.append({
+                                    "role": "system",
+                                    "content": (
+                                        "[SYSTEM HINT] You just spoke to the player without using the SAY: format. "
+                                        "ALL player-facing text MUST start with 'SAY: '. Example: 'SAY: Hello friend.' "
+                                        "Do NOT send raw text without SAY:. If you have nothing to say, say nothing."
+                                    )
+                                })
+                            else:
+                                _post_chat(chat_msg)
 
                     if response and not is_budget_error:
                         print(f"[loop] Response: {response[:200]}", flush=True)
