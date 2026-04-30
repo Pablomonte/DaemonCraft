@@ -14,6 +14,14 @@ import json
 import os
 import signal
 import sys
+
+
+class TurnTimeoutError(Exception):
+    pass
+
+
+def _turn_timeout_handler(signum, frame):
+    raise TurnTimeoutError("Turn timed out after 90s — forcing completion")
 import threading
 import time
 import urllib.request
@@ -946,53 +954,65 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
             cancel_event.clear()
             turn_in_progress.set()
             send_heartbeat(next_turn_in=None, turn_in_progress=True)
+
+            result = None
             try:
-                result = agent.run_conversation(
-                    user_message=prompt,
-                    conversation_history=conversation_history,
-                )
+                # Safety timeout: no turn may last longer than 90 seconds
+                old_handler = signal.signal(signal.SIGALRM, _turn_timeout_handler)
+                signal.alarm(90)
+                try:
+                    result = agent.run_conversation(
+                        user_message=prompt,
+                        conversation_history=conversation_history,
+                    )
+                finally:
+                    signal.alarm(0)
+                    signal.signal(signal.SIGALRM, old_handler)
 
-                conversation_history = result.get("messages", [])
-                conversation_history = _safe_trim_history(conversation_history, max_msgs=20)
+                if result:
+                    conversation_history = result.get("messages", [])
+                    conversation_history = _safe_trim_history(conversation_history, max_msgs=20)
 
-                response = result.get("final_response", "")
-                turn_log["response"] = response
+                    response = result.get("final_response", "")
+                    turn_log["response"] = response
 
-                is_budget_error = (
-                    "maximum iterations" in (response or "")
-                    or "couldn't summarize" in (response or "")
-                    or "tool_call_id" in (response or "")
-                )
+                    is_budget_error = (
+                        "maximum iterations" in (response or "")
+                        or "couldn't summarize" in (response or "")
+                        or "tool_call_id" in (response or "")
+                    )
 
-                mc_chat_used = False
-                for msg in conversation_history:
-                    if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                        for tc in msg["tool_calls"]:
-                            name = tc.get("function", {}).get("name", "")
-                            turn_log["tool_calls"].append({
-                                "name": name,
-                                "args": tc.get("function", {}).get("arguments", ""),
-                            })
-                            if name == "mc_chat":
-                                mc_chat_used = True
+                    mc_chat_used = False
+                    for msg in conversation_history:
+                        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                            for tc in msg["tool_calls"]:
+                                name = tc.get("function", {}).get("name", "")
+                                turn_log["tool_calls"].append({
+                                    "name": name,
+                                    "args": tc.get("function", {}).get("arguments", ""),
+                                })
+                                if name == "mc_chat":
+                                    mc_chat_used = True
 
-                if is_budget_error:
-                    print("[loop] Budget exhausted — tools executed but summary failed. Will retry next turn.", flush=True)
-                    conversation_history = []
-                elif response and (is_chat_triggered or os.getenv("MC_ALWAYS_CHAT", "").lower() in ("1", "true", "yes")):
-                    # If the agent used mc_chat this turn, it already spoke — don't duplicate.
-                    # Otherwise, the final_response IS the chat output.
-                    chat_msg = response.strip()
-                    if (
-                        chat_msg
-                        and not chat_msg.startswith("Operation interrupted")
-                        and not mc_chat_used
-                    ):
-                        _post_chat(chat_msg)
+                    if is_budget_error:
+                        print("[loop] Budget exhausted — tools executed but summary failed. Will retry next turn.", flush=True)
+                        conversation_history = []
+                    elif response and (is_chat_triggered or os.getenv("MC_ALWAYS_CHAT", "").lower() in ("1", "true", "yes")):
+                        chat_msg = response.strip()
+                        if (
+                            chat_msg
+                            and not chat_msg.startswith("Operation interrupted")
+                            and not mc_chat_used
+                        ):
+                            _post_chat(chat_msg)
 
-                if response and not is_budget_error:
-                    print(f"[loop] Response: {response[:200]}", flush=True)
+                    if response and not is_budget_error:
+                        print(f"[loop] Response: {response[:200]}", flush=True)
 
+            except TurnTimeoutError as e:
+                turn_log["error"] = str(e)
+                print(f"[loop] {e}", flush=True)
+                conversation_history = []
             except Exception as e:
                 turn_log["error"] = str(e)
                 print(f"[loop] Error during turn: {e}", flush=True)

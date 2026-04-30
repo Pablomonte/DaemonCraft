@@ -357,7 +357,9 @@ def _handle_mc_mine(args: dict, **kwargs) -> str:
 
 def _handle_mc_build(args: dict, **kwargs) -> str:
     """Build, place blocks, fill areas, interact with blocks, and utility actions."""
-    action = args.get("action", "use")
+    action = args.get("action", "")
+    if not action:
+        return "Error: action is required for mc_build. Valid actions: place, fill, clear, interact, till, bonemeal, flatten, ignite, fish, close, use, toss, sleep, wait, connect"
     payload: Dict[str, Any] = {}
 
     if action == "place":
