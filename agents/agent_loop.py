@@ -165,7 +165,7 @@ def format_plan(plan: dict) -> str:
     if total > 0 and done == total:
         return (
             f"Your goal '{goal}' is COMPLETE. All {total} tasks finished.\n"
-            f"Announce your success to the player with mc_chat, then EITHER:\n"
+            f"Announce your success to the player with a SAY: line, then EITHER:\n"
             f"  1. Ask what they'd like you to work on next\n"
             f"  2. Set your own goal based on what would be useful (check status, inventory, surroundings)\n"
             f"If you choose option 2, use mc_plan(action='set_goal', goal='...', tasks=[...]) to commit.\n"

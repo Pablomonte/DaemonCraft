@@ -755,6 +755,19 @@ function byteCap(s) {
 }
 
 async function sendToMcChat(text, { source = "auto" } = {}) {
+  // When source is not "tool", only lines starting with "SAY:" go to Minecraft chat.
+  // Everything else is internal reasoning and must stay silent.
+  if (source !== "tool") {
+    const sayLines = text.split(/\n/)
+      .map(l => l.trim())
+      .filter(l => /^SAY:\s*/i.test(l))
+      .map(l => l.replace(/^SAY:\s*/i, ""));
+    if (sayLines.length === 0) {
+      return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "no_say_lines" };
+    }
+    text = sayLines.join(" ");
+  }
+
   const { fragments, truncated } = chunkForMc(text);
   if (fragments.length === 0) {
     return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "empty" };
