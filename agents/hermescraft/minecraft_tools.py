@@ -51,6 +51,21 @@ from tools.registry import registry, tool_error
 
 MC_API_URL = os.getenv("MC_API_URL", "http://localhost:3001")
 
+# ═─ Anti-loop throttle for /tp commands ─════════════════════════════
+_tp_history: list[float] = []
+_MAX_TP_PER_WINDOW = 3
+_TP_WINDOW_SECONDS = 60
+
+def _check_tp_throttle() -> bool:
+    """Return True if this /tp should be allowed, False if throttled."""
+    now = time.time()
+    global _tp_history
+    _tp_history = [t for t in _tp_history if now - t < _TP_WINDOW_SECONDS]
+    if len(_tp_history) >= _MAX_TP_PER_WINDOW:
+        return False
+    _tp_history.append(now)
+    return True
+
 # Global cancel event — set by agent_loop.py when chat arrives during a turn
 _cancel_event: Optional[threading.Event] = None
 
@@ -1040,6 +1055,11 @@ def _handle_mc_command(args: dict, **kwargs) -> str:
         return "Error: command is required"
     if not command.startswith("/"):
         command = "/" + command
+
+    # Throttle excessive /tp usage to prevent exploration loops
+    if command.strip().lower().startswith("/tp"):
+        if not _check_tp_throttle():
+            return "Error: /tp throttled — too many teleports in the last minute. Use mc_move or mc_perceive from your current location instead."
 
     # ═─ Intercept /godmode toggle ─══════════════════════════════════════
     stripped = command.strip().lower()
