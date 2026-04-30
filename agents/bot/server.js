@@ -755,41 +755,58 @@ function byteCap(s) {
 }
 
 async function sendToMcChat(text, { source = "auto" } = {}) {
-  // ALWAYS filter SAY: prefix from all lines, regardless of source.
-  // When source is not "tool", only lines starting with "SAY:" go to Minecraft chat.
-  // Everything else is internal reasoning and must stay silent.
-  // Exception: commands starting with '/' are always sent (they are not chat).
-  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
-  const commandLines = lines.filter(l => l.startsWith("/"));
-  const sayLines = lines.filter(l => /^SAY:\s*/i.test(l)).map(l => l.replace(/^SAY:\s*/i, ""));
-  const otherLines = lines.filter(l => !l.startsWith("/") && !/^SAY:\s*/i.test(l));
+  // Unified chat delivery. The agent_loop is the single source of truth for
+  // formatting, noise filtering, and SAY: parsing. This function only does
+  // chunking, throttling, and delivery.
+  //
+  // For source === "tool": agent already formatted everything. We trust it
+  // and send each line as its own fragment to preserve verses/pacing.
+  //
+  // For source !== "tool" (legacy/dashboard): apply the old SAY: filter so
+  // external callers don't need to know the internal protocol.
 
-  if (source !== "tool") {
+  let fragments = [];
+  let truncated = false;
+
+  if (source === "tool") {
+    // Trust the agent. Each non-empty line is a separate fragment.
+    fragments = text.split(/\n/).map(l => l.trim()).filter(Boolean).map(byteCap);
+    if (fragments.length === 0) {
+      return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "empty" };
+    }
+    // Hard cap on total fragments to avoid flooding
+    if (fragments.length > MC_MAX_FRAGMENTS) {
+      truncated = true;
+      fragments.length = MC_MAX_FRAGMENTS;
+      const last = fragments[MC_MAX_FRAGMENTS - 1];
+      const ellipsis = " [...]";
+      if (last.length + ellipsis.length <= MC_FRAGMENT_MAX_CHARS) {
+        fragments[MC_MAX_FRAGMENTS - 1] = last + ellipsis;
+      } else {
+        fragments[MC_MAX_FRAGMENTS - 1] = last.slice(0, MC_FRAGMENT_MAX_CHARS - ellipsis.length).trimEnd() + ellipsis;
+      }
+    }
+  } else {
+    // Legacy path for non-migrated callers (dashboard, external scripts)
+    const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+    const commandLines = lines.filter(l => l.startsWith("/"));
+    const sayLines = lines.filter(l => /^SAY:\s*/i.test(l)).map(l => l.replace(/^SAY:\s*/i, ""));
+
+    let payload = "";
     if (commandLines.length > 0) {
-      text = commandLines.join(" ");
+      payload = commandLines.join("\n");
     } else if (sayLines.length === 0) {
       return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "no_say_lines" };
     } else {
-      text = sayLines.join(" ");
+      payload = sayLines.join("\n");
     }
-  } else {
-    // source === "tool": keep commands and SAY lines, drop raw reasoning
-    const toolLines = [...commandLines, ...sayLines];
-    if (toolLines.length === 0) {
-      return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "no_chat_lines" };
+
+    const result = chunkForMc(payload);
+    fragments = result.fragments;
+    truncated = result.truncated;
+    if (fragments.length === 0) {
+      return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "empty" };
     }
-    text = toolLines.join(" ");
-  }
-
-  // Drop single punctuation and noise that would clutter the chat window
-  const trimmed = text.trim();
-  if (/^[.\-]+$/.test(trimmed) || /^\d{1,2}$/.test(trimmed)) {
-    return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "noise_filtered" };
-  }
-
-  const { fragments, truncated } = chunkForMc(text);
-  if (fragments.length === 0) {
-    return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "empty" };
   }
 
   const now = Date.now();

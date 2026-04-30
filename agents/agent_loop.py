@@ -29,6 +29,22 @@ if str(HERMES_DIR) not in sys.path:
 
 from run_agent import AIAgent
 
+# Chat policy — single source of truth for chat behavior
+try:
+    from hermescraft.chat_policy import filter_noise, enforce_say_format, detect_language
+except ImportError:
+    # Fallback if hermescraft is not on path
+    import importlib.util
+    _cp_spec = importlib.util.spec_from_file_location(
+        "chat_policy",
+        Path(__file__).parent / "hermescraft" / "chat_policy.py"
+    )
+    _cp_mod = importlib.util.module_from_spec(_cp_spec)
+    _cp_spec.loader.exec_module(_cp_mod)
+    filter_noise = _cp_mod.filter_noise
+    enforce_say_format = _cp_mod.enforce_say_format
+    detect_language = _cp_mod.detect_language
+
 MC_API_URL = os.getenv("MC_API_URL", "http://localhost:3001")
 BOT_USERNAME = os.getenv("MC_USERNAME", "Steve").lower()
 # Comma-separated list of bot usernames (e.g., "eko,pamplinas,steve")
@@ -79,53 +95,18 @@ def send_heartbeat(next_turn_in: float | None = None, turn_in_progress: bool = F
         pass
 
 
-def _clean_response_for_chat(text: str) -> str:
-    """Best-effort cleanup. Enforce SAY: format and filter noise."""
-    if not text:
-        return ""
-    text = text.strip()
-    # Ignore single punctuation marks and very short noise
-    if text in (".", "..", "...", "-", "--", "ok", "okay", "hm", "hmm"):
-        return ""
-    if len(text) <= 2 and text.isdigit():
-        return ""
-
-    lines = text.split("\n")
-    say_lines = [l.strip() for l in lines if l.strip().startswith("SAY:")]
-    cmd_lines = [l.strip() for l in lines if l.strip().startswith("/")]
-    other_lines = [l.strip() for l in lines if l.strip() and not l.strip().startswith("SAY:") and not l.strip().startswith("/")]
-
-    # If the model already used SAY:, trust it (extract only SAY lines)
-    if say_lines:
-        return "\n".join(say_lines)
-
-    # If there are only commands, do not chat
-    if cmd_lines and not other_lines:
-        return ""
-
-    # If there are short chat-like lines without SAY:, auto-prefix them
-    # This prevents the model from sending raw text that bypasses the filter
-    auto_say = []
-    for line in other_lines:
-        if len(line) <= 180:
-            auto_say.append(f"SAY: {line}")
-        # Long non-SAY lines are assumed to be reasoning and dropped
-    if auto_say:
-        return "\n".join(auto_say)
-
-    return ""
-
-
 def _post_chat(text: str) -> None:
-    """Hand the full text to the bot server. Server does chunking + delivery.
-
-    No pre-chunking, no length filtering, no SAY: parsing. The server is the
-    sole authority on what reaches Minecraft.
-    """
-    text = _clean_response_for_chat(text)
-    if not text:
+    """Hand chat text to the bot server. Delegates formatting to chat_policy."""
+    text = filter_noise(text)
+    if text is None:
         return
-    payload = json.dumps({"message": text}).encode("utf-8")
+    chat_text, warnings = enforce_say_format(text)
+    # Inject formatting hints for next turn (non-blocking)
+    for w in warnings:
+        conversation_history.append({"role": "system", "content": w})
+    if not chat_text:
+        return
+    payload = json.dumps({"message": chat_text}).encode("utf-8")
     req = urllib.request.Request(
         f"{MC_API_URL}/chat/send",
         data=payload,
@@ -141,6 +122,8 @@ def _post_chat(text: str) -> None:
                 print(f"[loop] Chat: {sent} fragments sent, {dropped} dropped (cap)", flush=True)
     except Exception as e:
         print(f"[loop] /chat/send failed: {e}", flush=True)
+
+
 
 
 def _safe_trim_history(messages: list, max_msgs: int = 20) -> list:
@@ -779,14 +762,7 @@ def _daemon_guardian_loop():
 
             # Enforce creative mode ONLY if not already creative
             if not _check_gamemode():
-                payload = json.dumps({"message": f"/gamemode creative {BOT_USERNAME}"}).encode("utf-8")
-                req = urllib.request.Request(
-                    f"{MC_API_URL}/chat/send",
-                    data=payload,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                urllib.request.urlopen(req, timeout=3)
+                _bot_command(f"/gamemode creative {BOT_USERNAME}")
                 print("[daemon_guardian] Restored creative mode", flush=True)
 
             # Check which effects are missing, apply only those
@@ -794,42 +770,15 @@ def _daemon_guardian_loop():
             missing = []
             if not effects["resistance"]:
                 missing.append("resistance")
-                payload = json.dumps({
-                    "message": f"/effect give {BOT_USERNAME} minecraft:resistance 999999 255 true"
-                }).encode("utf-8")
-                req = urllib.request.Request(
-                    f"{MC_API_URL}/chat/send",
-                    data=payload,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                urllib.request.urlopen(req, timeout=3)
+                _bot_command(f"/effect give {BOT_USERNAME} minecraft:resistance 999999 255 true")
 
             if not effects["fire_resistance"]:
                 missing.append("fire_resistance")
-                payload = json.dumps({
-                    "message": f"/effect give {BOT_USERNAME} minecraft:fire_resistance 999999 0 true"
-                }).encode("utf-8")
-                req = urllib.request.Request(
-                    f"{MC_API_URL}/chat/send",
-                    data=payload,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                urllib.request.urlopen(req, timeout=3)
+                _bot_command(f"/effect give {BOT_USERNAME} minecraft:fire_resistance 999999 0 true")
 
             if not effects["water_breathing"]:
                 missing.append("water_breathing")
-                payload = json.dumps({
-                    "message": f"/effect give {BOT_USERNAME} minecraft:water_breathing 999999 0 true"
-                }).encode("utf-8")
-                req = urllib.request.Request(
-                    f"{MC_API_URL}/chat/send",
-                    data=payload,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                urllib.request.urlopen(req, timeout=3)
+                _bot_command(f"/effect give {BOT_USERNAME} minecraft:water_breathing 999999 0 true")
 
             if missing:
                 print(f"[daemon_guardian] Applied missing effects: {', '.join(missing)}", flush=True)
@@ -918,7 +867,6 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
     last_response_text = ""  # Track last response to detect repetition loops
     repeat_count = 0  # How many times the agent has repeated the same response
     build_streak = 0  # Consecutive turns with repetitive build commands
-    last_build_coords = None  # Last build coordinates to detect coordinate loops
 
     start_ws_listener()
     start_countdown(interval)
@@ -969,20 +917,10 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                     for m in msgs
                 ])
                 # Detect language from player messages to reinforce response language
-                player_langs = set()
-                for m in msgs:
-                    txt = m.get("message", "")
-                    # Simple heuristic: if message contains common Spanish words/patterns
-                    spanish_markers = ["¿", "¡", "está", "estás", "cómo", "qué", "vamos", "hola", "bien", "para", "con", "por", "una", "tu", "te", "se", "lo", "la", "el", "en", "de", "que", "y", "a"]
-                    if any(marker in txt.lower() for marker in spanish_markers):
-                        player_langs.add("es")
-                    else:
-                        player_langs.add("en")
+                lang = detect_language(msgs)
                 lang_hint = ""
-                if "es" in player_langs and "en" not in player_langs:
-                    lang_hint = "The player is writing in SPANISH. You MUST respond in SPANISH. "
-                elif "es" in player_langs:
-                    lang_hint = "The player may be writing in Spanish. Respond in the SAME LANGUAGE they use. "
+                if lang == "es":
+                    lang_hint = "The player is writing in SPANISH. Please respond in SPANISH. "
 
                 prompt = (
                     f"New chat messages — respond immediately:\n{chat_lines}\n\n"
@@ -1144,20 +1082,7 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                             and not mc_chat_used
                         ):
                             # Enforce SAY: format — if the model forgot, nudge it for next turn
-                            has_say = any(line.strip().startswith("SAY:") for line in chat_msg.split("\n"))
-                            has_command = any(line.strip().startswith("/") for line in chat_msg.split("\n"))
-                            if not has_say and not has_command:
-                                print(f"[loop] Response lacks SAY: format — nudging model", flush=True)
-                                conversation_history.append({
-                                    "role": "system",
-                                    "content": (
-                                        "[SYSTEM HINT] You just spoke to the player without using the SAY: format. "
-                                        "ALL player-facing text MUST start with 'SAY: '. Example: 'SAY: Hello friend.' "
-                                        "Do NOT send raw text without SAY:. If you have nothing to say, say nothing."
-                                    )
-                                })
-                            else:
-                                _post_chat(chat_msg)
+                            _post_chat(chat_msg)
 
                     if response and not is_budget_error:
                         print(f"[loop] Response: {response[:200]}", flush=True)
