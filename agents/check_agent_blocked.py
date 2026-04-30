@@ -2,11 +2,15 @@
 """Check if the Minecraft agent is blocked in a tool loop.
 
 Reads the last N lines of the agent log and determines if the agent
-is stuck calling the same tool repeatedly (blocked) or making progress (working).
+is stuck calling failing tools repeatedly (blocked) or making progress (working).
+
+NOTE: We do NOT block on repetitive successful calls (e.g. 20+ mc_build
+placing blocks) because that is legitimate construction. Only repeated
+failures indicate a real block.
 
 Exit codes:
     0 = working or inconclusive
-    1 = blocked (repetitive tool calls detected)
+    1 = blocked (repetitive failing tool calls detected)
 """
 
 import sys
@@ -14,8 +18,7 @@ from pathlib import Path
 
 LOG_FILE = Path.home() / ".local/share/daemoncraft/siqui/logs/Siqui_agent.log"
 MAX_LINES = 80
-ERROR_THRESHOLD = 7       # 7+ errors of same tool = blocked
-REPEAT_THRESHOLD = 20     # 20+ repeats of same tool = blocked (even if no errors)
+ERROR_THRESHOLD = 7
 
 
 def main() -> int:
@@ -54,14 +57,6 @@ def main() -> int:
     if all(err for _, err in last_batch):
         print(f"[check] Agent blocked: {ERROR_THRESHOLD}x consecutive errors", file=sys.stderr)
         return 1
-
-    # 3) Same tool repeated too many times (even without errors) — e.g. mc_build loops
-    if len(tool_calls) >= REPEAT_THRESHOLD:
-        repeat_batch = tool_calls[-REPEAT_THRESHOLD:]
-        repeat_name = repeat_batch[0][0]
-        if all(name == repeat_name for name, _ in repeat_batch):
-            print(f"[check] Agent blocked: {REPEAT_THRESHOLD}x '{repeat_name}' loop", file=sys.stderr)
-            return 1
 
     return 0
 
