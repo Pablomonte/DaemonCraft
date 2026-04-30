@@ -1042,7 +1042,7 @@ def _handle_mc_screenshot(args: dict, **kwargs) -> str:
 
 MC_SCREENSHOT_SCHEMA = {
     "name": "mc_screenshot",
-    "description": "Take a screenshot of the Minecraft world from the bot's eyes. Uses a WebGL renderer (prismarine-viewer) served on a local port and captured via headless Chrome. Produces a PNG image. Specify width/height (default 1280x720, max 1920x1080) and optionally a custom file_name. The returned path is an absolute PNG file path. If you need to SEE what is in the image, call vision_analyze with the returned path.",
+    "description": "Take a visual snapshot of the Minecraft world around the bot. On headless/Pi4 environments this produces a top-down block map (like a minimap) showing terrain, trees, water, and structures in a 40-block radius. On desktop environments with GPU it can produce a 3D first-person view. The returned path is an absolute PNG file path. Use this BEFORE building to see the terrain, or AFTER building to verify results. If something looks wrong in the image, adjust your coordinates.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -1343,6 +1343,24 @@ def _handle_mc_story(args: dict, **kwargs) -> str:
         target.write_text(json.dumps(blueprint, indent=2))
         return f"Blueprint saved: {blueprint.get('metadata', {}).get('title', 'Untitled')}"
 
+    if action == "list_blueprints":
+        try:
+            bps = sorted(_BLUEPRINTS_DIR.glob("*.json"))
+            if not bps:
+                return "No blueprints found."
+            lines = ["Available blueprints:"]
+            for bp_path in bps:
+                try:
+                    bp = json.loads(bp_path.read_text())
+                    title = bp.get("metadata", {}).get("title", bp_path.stem)
+                    phases = len(bp.get("phases", []))
+                    lines.append(f"  • {bp_path.stem} — '{title}' ({phases} phases)")
+                except Exception:
+                    lines.append(f"  • {bp_path.stem} — (unreadable)")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"Error listing blueprints: {e}"
+
     if action == "load_blueprint":
         name = args.get("name")
         if name:
@@ -1470,7 +1488,7 @@ MC_STORY_SCHEMA = {
                     "get_state", "set_flag", "advance_phase", "advance_day",
                     "add_objective", "complete_objective", "log_event", "get_events",
                     "set_title", "record_choice", "reset",
-                    "save_blueprint", "load_blueprint",
+                    "save_blueprint", "load_blueprint", "list_blueprints",
                     "record_activity", "check_timeout", "reset_phase",
                     "check_score", "set_score", "run_function",
                     "setup_sensors", "poll_sensors", "cleanup_sensors",

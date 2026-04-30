@@ -80,10 +80,16 @@ def send_heartbeat(next_turn_in: float | None = None, turn_in_progress: bool = F
 
 
 def _clean_response_for_chat(text: str) -> str:
-    """Best-effort cleanup. Currently a no-op; reserved for future tag stripping."""
+    """Best-effort cleanup. Filter out meaningless minimal responses."""
     if not text:
         return ""
-    return text.strip()
+    text = text.strip()
+    # Ignore single punctuation marks and very short noise
+    if text in (".", "..", "...", "-", "--", "ok", "okay", "hm", "hmm"):
+        return ""
+    if len(text) <= 2 and text.isdigit():
+        return ""
+    return text
 
 
 def _post_chat(text: str) -> None:
@@ -869,6 +875,10 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
     conversation_history = []
     turn_count = 0
     _cancel_wired = False
+    last_response_text = ""  # Track last response to detect repetition loops
+    repeat_count = 0  # How many times the agent has repeated the same response
+    build_streak = 0  # Consecutive turns with repetitive build commands
+    last_build_coords = None  # Last build coordinates to detect coordinate loops
 
     start_ws_listener()
     start_countdown(interval)
@@ -970,12 +980,38 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                     response = result.get("final_response", "")
                     turn_log["response"] = response
 
+                    # Detect repetition loops — if agent repeats the exact same response,
+                    # nudge the model with a system hint instead of wiping memory
+                    if response and response.strip() == last_response_text.strip():
+                        repeat_count += 1
+                        print(f"[loop] DETECTED repetition loop (x{repeat_count}) — nudging model instead of wiping memory", flush=True)
+                        # Inject a system hint to break the loop without losing context
+                        conversation_history.append({
+                            "role": "system",
+                            "content": (
+                                f"[SYSTEM HINT] You just repeated the exact same response {repeat_count} time(s) in a row. "
+                                "The player already heard this. Do NOT repeat it. "
+                                "Try a different approach: ask what they want, change the subject, or do something surprising. "
+                                "If you were building something, check if it's already done. "
+                                "If you were telling a story, move to the next beat or ask the player a question. "
+                                f"{' IMPORTANT: You seem stuck in a build loop. Call mc_screenshot() RIGHT NOW to see what is actually in front of you.' if repeat_count >= 2 else ''}"
+                            )
+                        })
+                        # Also trim the last assistant message that caused the repeat
+                        # (keep tool results so the model knows what happened)
+                        if conversation_history and conversation_history[-2].get("role") == "assistant":
+                            conversation_history = conversation_history[:-2]
+                    else:
+                        repeat_count = 0
+                    last_response_text = response or ""
+
                     is_budget_error = (
                         "maximum iterations" in (response or "")
                         or "couldn't summarize" in (response or "")
                         or "tool_call_id" in (response or "")
                     )
 
+                    mc_chat_count = 0
                     mc_chat_used = False
                     for msg in conversation_history:
                         if msg.get("role") == "assistant" and msg.get("tool_calls"):
@@ -987,6 +1023,56 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                                 })
                                 if name == "mc_chat":
                                     mc_chat_used = True
+                                    mc_chat_count += 1
+
+                    # Detect mc_chat spam loops (more than 5 mc_chat calls in one turn)
+                    if mc_chat_count > 5:
+                        print(f"[loop] DETECTED mc_chat spam ({mc_chat_count} calls) — nudging model", flush=True)
+                        conversation_history.append({
+                            "role": "system",
+                            "content": (
+                                "[SYSTEM HINT] You just sent too many chat messages in one turn. "
+                                "Use ONE mc_chat call per turn, or better yet, put all your text in a single response. "
+                                "The player can only read ~10 lines before they scroll away."
+                            )
+                        })
+
+                    # Detect build loops: repeated /fill or /setblock in same coordinate area
+                    build_cmds = []
+                    for msg in conversation_history:
+                        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                            for tc in msg["tool_calls"]:
+                                name = tc.get("function", {}).get("name", "")
+                                args = tc.get("function", {}).get("arguments", "")
+                                if name in ("mc_build", "mc_command"):
+                                    build_cmds.append((name, args))
+                    # Count fill/setblock commands in this turn
+                    fill_count = sum(1 for n, a in build_cmds if "fill" in a.lower() or "/fill" in a.lower())
+                    place_count = sum(1 for n, a in build_cmds if "place" in a.lower() or "/setblock" in a.lower())
+                    if fill_count >= 3 or place_count >= 5:
+                        print(f"[loop] DETECTED build loop ({fill_count} fills, {place_count} places) — requesting screenshot", flush=True)
+                        conversation_history.append({
+                            "role": "system",
+                            "content": (
+                                "[SYSTEM HINT] You just issued many build commands in one turn. "
+                                "You may be building blindly. STOP. Call mc_screenshot() RIGHT NOW to see what you have built so far. "
+                                "Then verify with mc_perceive(type='scene') before continuing. "
+                                "If the structure looks wrong, do NOT keep adding blocks. Reassess your coordinates."
+                            )
+                        })
+                        build_streak += 1
+                    else:
+                        build_streak = max(0, build_streak - 1)
+                    # Escalating hint if build streak continues
+                    if build_streak >= 2:
+                        conversation_history.append({
+                            "role": "system",
+                            "content": (
+                                "[SYSTEM HINT] ESCALATION: You have been building repeatedly across multiple turns. "
+                                "Something is wrong. Call mc_screenshot() and mc_perceive(type='scene'). "
+                                "Ask the player what they actually want, or take a break from building and do something else."
+                            )
+                        })
 
                     if is_budget_error:
                         print("[loop] Budget exhausted — tools executed but summary failed. Will retry next turn.", flush=True)

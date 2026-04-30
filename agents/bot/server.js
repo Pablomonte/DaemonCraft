@@ -757,15 +757,24 @@ function byteCap(s) {
 async function sendToMcChat(text, { source = "auto" } = {}) {
   // When source is not "tool", only lines starting with "SAY:" go to Minecraft chat.
   // Everything else is internal reasoning and must stay silent.
+  // Exception: commands starting with '/' are always sent (they are not chat).
+  // Filter out meaningless minimal responses like single dots.
   if (source !== "tool") {
-    const sayLines = text.split(/\n/)
-      .map(l => l.trim())
-      .filter(l => /^SAY:\s*/i.test(l))
-      .map(l => l.replace(/^SAY:\s*/i, ""));
-    if (sayLines.length === 0) {
+    const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+    const commandLines = lines.filter(l => l.startsWith("/"));
+    const sayLines = lines.filter(l => /^SAY:\s*/i.test(l)).map(l => l.replace(/^SAY:\s*/i, ""));
+    if (commandLines.length > 0) {
+      text = commandLines.join(" ");
+    } else if (sayLines.length === 0) {
       return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "no_say_lines" };
+    } else {
+      text = sayLines.join(" ");
     }
-    text = sayLines.join(" ");
+  }
+  // Drop single punctuation and noise that would clutter the chat window
+  const trimmed = text.trim();
+  if (/^[.\-]+$/.test(trimmed) || /^\d{1,2}$/.test(trimmed)) {
+    return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "noise_filtered" };
   }
 
   const { fragments, truncated } = chunkForMc(text);
@@ -1640,6 +1649,150 @@ const NON_SOLID_BLOCKS = new Set([
   'peony', 'sweet_berry_bush', 'seagrass', 'tall_seagrass', 'kelp',
   'kelp_plant', 'vine', 'glow_lichen', 'cave_vines', 'cave_vines_plant',
 ]);
+
+// ═══════════════════════════════════════════════════════════════════
+// Top-down block-map renderer (node-canvas fallback for headless/Pi4)
+// ═══════════════════════════════════════════════════════════════════
+
+function getBlockColor(name) {
+  const colors = {
+    grass_block: '#4a8f29', dirt: '#8b5a2b', stone: '#808080', cobblestone: '#7a7a7a',
+    bedrock: '#333333', sand: '#d6cf92', gravel: '#857e7e', water: '#3f76e4',
+    lava: '#cf5c00', oak_log: '#6b4f2a', oak_planks: '#b8955a', oak_leaves: '#3a7a2a',
+    spruce_log: '#3e2b18', spruce_leaves: '#2d5a1e', birch_log: '#c4b89b', birch_leaves: '#5a9a3a',
+    dark_oak_log: '#3b2a14', jungle_log: '#6b5a2a', acacia_log: '#8b6a3a',
+    glass: '#aaddff', glowstone: '#ffcc55', torch: '#ffaa00', furnace: '#6e6e6e',
+    chest: '#b8860b', crafting_table: '#8b5a2b', stone_bricks: '#7a7a7a', bricks: '#a05030',
+    coal_ore: '#6e6e6e', iron_ore: '#9a7a6a', gold_ore: '#d4af37', diamond_ore: '#4aedd4',
+    redstone_ore: '#c43a3a', emerald_ore: '#50c878', copper_ore: '#b87333',
+    netherrack: '#6b1a1a', soul_sand: '#4a3a2a', end_stone: '#e0e0a0', obsidian: '#1a0a2a',
+    snow: '#f0f0f0', ice: '#aaddff', packed_ice: '#90ccff', blue_ice: '#74aadd',
+    clay: '#9aa7b8', mossy_cobblestone: '#6a7a5a', mossy_stone_bricks: '#6a7a5a',
+    farmland: '#5a3a1a', wheat: '#c4a32e', carrot: '#ff8c00', potato: '#d4a050',
+    pumpkin: '#e0931f', melon: '#a5c43a', cactus: '#2a8a2a', sugar_cane: '#6aaa3a',
+    vine: '#3a7a2a', lily_pad: '#4a9a3a', seagrass: '#4a9a3a', kelp: '#4a9a3a',
+    tall_grass: '#4a8f29', grass: '#4a8f29', fern: '#4a8f29', dead_bush: '#8b5a2b',
+    flower: '#ff66cc', dandelion: '#ffdd00', poppy: '#ff0000', blue_orchid: '#00ccff',
+    allium: '#cc88ff', azure_bluet: '#eeeeff', red_tulip: '#ff4444', orange_tulip: '#ff8844',
+    white_tulip: '#ffffee', pink_tulip: '#ffaaaa', oxeye_daisy: '#ffffee', cornflower: '#4444ff',
+    lily_of_the_valley: '#ffffff', wither_rose: '#111111', sunflower: '#ffdd00', lilac: '#cc88ff',
+    rose_bush: '#ff0000', peony: '#ffaaaa', oak_sapling: '#4a8f29', spruce_sapling: '#2d5a1e',
+    birch_sapling: '#5a9a3a', jungle_sapling: '#6b5a2a', acacia_sapling: '#8b6a3a',
+    dark_oak_sapling: '#3a7a2a', bamboo: '#6aaa3a', bamboo_sapling: '#6aaa3a',
+    mushroom: '#ccaa88', brown_mushroom: '#aa8866', red_mushroom: '#cc4444',
+    mushroom_stem: '#ddddcc', red_mushroom_block: '#cc4444', brown_mushroom_block: '#aa8866',
+    nether_bricks: '#2a0a0a', red_nether_bricks: '#4a0a0a', basalt: '#4a4a4a',
+    polished_basalt: '#5a5a5a', smooth_basalt: '#4a4a4a', blackstone: '#2a2a2a',
+    polished_blackstone: '#3a3a3a', gilded_blackstone: '#4a3a1a',
+    deepslate: '#3a3a3a', cobbled_deepslate: '#4a4a4a', polished_deepslate: '#5a5a5a',
+    calcite: '#e0e0e0', tuff: '#6a6a5a', dripstone_block: '#7a6a5a',
+    amethyst_block: '#aa88ff', budding_amethyst: '#aa88ff', amethyst_cluster: '#ccaaee',
+    copper_block: '#b87333', exposed_copper: '#8a6a44', weathered_copper: '#5a7a44',
+    oxidized_copper: '#3a6a44', mud: '#4a3a2a', packed_mud: '#6a5a3a', mud_bricks: '#7a6a4a',
+    reinforced_deepslate: '#4a4a3a', sculk: '#0a2a2a', sculk_catalyst: '#1a3a3a',
+    sculk_shrieker: '#2a4a4a', sculk_vein: '#0a2a2a', frogspawn: '#3a5a3a',
+    mangrove_log: '#5a3a2a', mangrove_planks: '#8b6a4a', mangrove_leaves: '#4a7a2a',
+    cherry_log: '#4a3a3a', cherry_planks: '#c4a4a4', cherry_leaves: '#ffaacc',
+    pink_petals: '#ffaaaa', terracotta: '#b07050', concrete: '#888888',
+    white_concrete: '#eeeeee', orange_concrete: '#ff8800', magenta_concrete: '#ff00ff',
+    light_blue_concrete: '#44aaff', yellow_concrete: '#ffdd00', lime_concrete: '#88ff00',
+    pink_concrete: '#ff88aa', gray_concrete: '#555555', light_gray_concrete: '#aaaaaa',
+    cyan_concrete: '#00aaaa', purple_concrete: '#8800ff', blue_concrete: '#0000ff',
+    brown_concrete: '#663300', green_concrete: '#00aa00', red_concrete: '#ff0000',
+    black_concrete: '#111111', wool: '#eeeeee', white_wool: '#eeeeee', orange_wool: '#ffaa44',
+    magenta_wool: '#ff44ff', light_blue_wool: '#88ccff', yellow_wool: '#ffdd44',
+    lime_wool: '#aaff44', pink_wool: '#ff88aa', gray_wool: '#999999', light_gray_wool: '#cccccc',
+    cyan_wool: '#44ffff', purple_wool: '#aa44ff', blue_wool: '#6666ff', brown_wool: '#8b5a2b',
+    green_wool: '#66cc66', red_wool: '#ff6666', black_wool: '#333333',
+    tnt: '#ff4444', sandstone: '#d6c47a', red_sandstone: '#c4a050', quartz_block: '#eeeeee',
+    purpur_block: '#aa88cc', end_rod: '#e0e0e0', chorus_plant: '#6a4a6a', shulker_box: '#cc88cc',
+    sea_lantern: '#ccffff', lantern: '#ffcc88', soul_lantern: '#44ccff',
+    campfire: '#cc6622', soul_campfire: '#4466cc', smoker: '#6e6e6e', blast_furnace: '#6e6e6e',
+    loom: '#8b6a3a', composter: '#6b4f2a', barrel: '#b8955a', bell: '#ffdd44',
+    redstone_lamp: '#ffaa55', piston: '#b8955a', sticky_piston: '#88aa55',
+    redstone_block: '#ff0000', redstone_torch: '#ff4444', repeater: '#ccaa88',
+    observer: '#6e6e6e', daylight_detector: '#8b6a3a', hopper: '#6e6e6e',
+    dropper: '#6e6e6e', dispenser: '#6e6e6e', anvil: '#444444', cauldron: '#444444',
+    water_cauldron: '#3f76e4', lava_cauldron: '#cf5c00', snow_block: '#f0f0f0',
+    slime_block: '#66cc66', honey_block: '#ffaa00', hay_block: '#ffdd44',
+    sponge: '#d4d440', wet_sponge: '#a0a030', prismarine: '#4a9a7a',
+    prismarine_bricks: '#5aaa8a', dark_prismarine: '#3a7a5a',
+    andesite: '#8a8a8a', diorite: '#cccccc', granite: '#aa8866',
+    rooted_dirt: '#5a3a1a', moss_block: '#4a8a3a', azalea: '#6aaa3a',
+    dirt_path: '#d4c47a', stonecutter: '#7a7a7a',
+    rail: '#888888', powered_rail: '#ffaa00', detector_rail: '#cc4444',
+    ladder: '#b8955a', scaffolding: '#d4c47a', bee_nest: '#d4c47a',
+    suspicious_gravel: '#9a8a7a', suspicious_sand: '#d6c47a',
+  };
+  for (const [key, color] of Object.entries(colors)) {
+    if (name.includes(key)) return color;
+  }
+  return '#b0b0b0';
+}
+
+async function topdownScreenshot({ width = 400, height = 400, radius = 40, file_name } = {}) {
+  const { createCanvas } = await import('canvas');
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, width, height);
+
+  const botPos = bot.entity.position;
+  const botYaw = bot.entity.yaw || 0;
+  const scale = Math.min(width, height) / (radius * 2 + 2);
+  const cx = width / 2;
+  const cy = height / 2;
+
+  const w2c = (wx, wz) => ({
+    x: cx + (wx - botPos.x) * scale,
+    y: cy + (wz - botPos.z) * scale,
+  });
+
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dz = -radius; dz <= radius; dz++) {
+      const wx = Math.floor(botPos.x) + dx;
+      const wz = Math.floor(botPos.z) + dz;
+      let block = null;
+      for (let dy = 10; dy >= -10; dy--) {
+        const wy = Math.floor(botPos.y) + dy;
+        const b = bot.blockAt(new Vec3(wx, wy, wz));
+        if (b && b.name !== 'air' && b.name !== 'cave_air' && b.name !== 'void_air') {
+          block = b;
+          break;
+        }
+      }
+      if (!block) continue;
+      const pos = w2c(wx, wz);
+      ctx.fillStyle = getBlockColor(block.name);
+      ctx.fillRect(pos.x - scale/2, pos.y - scale/2, scale + 0.5, scale + 0.5);
+    }
+  }
+
+  ctx.fillStyle = '#ff0000';
+  ctx.beginPath();
+  ctx.arc(cx, cy, Math.max(3, scale), 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#ff0000';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.sin(botYaw) * scale * 3, cy - Math.cos(botYaw) * scale * 3);
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '10px sans-serif';
+  ctx.fillText(`Pos: ${Math.floor(botPos.x)}, ${Math.floor(botPos.y)}, ${Math.floor(botPos.z)}`, 4, 12);
+  ctx.fillText(`Holding: ${bot.heldItem?.name || 'hand'}`, 4, 24);
+  ctx.fillText(`Time: ${Math.floor(bot.time.timeOfDay || 0)}`, 4, 36);
+
+  let fname = file_name || `topdown_${(process.env.MC_USERNAME || 'HermesBot')}_${Date.now()}.png`;
+  if (!fname.endsWith('.png')) fname += '.png';
+  const outPath = path.join(SCREENSHOT_DIR, fname);
+  const buf = canvas.toBuffer('image/png');
+  fs.writeFileSync(outPath, buf);
+  return { result: `Topdown screenshot saved: ${outPath}`, path: outPath, width, height };
+}
 
 const ACTIONS = {
   // ── Movement ─────────────────────────────────────
@@ -3110,40 +3263,41 @@ async collect({ block, count = 1 }) {
   // Screenshot — Prismarine-viewer + Puppeteer (Pi4-optimised)
   // ──────────────────────────────────────────────────────────────────
 
-  async screenshot({ width = 800, height = 600, file_name }) {
+  async screenshot({ width = 800, height = 600, file_name, mode = 'topdown' }) {
     ensureBot();
+    // On Pi4/headless environments, prismarine-viewer + puppeteer + WebGL does not work
+    // reliably. Use a fast node-canvas top-down block map instead.
+    if (mode === 'topdown' || !viewerBrowser) {
+      try {
+        const r = await topdownScreenshot({ width, height, radius: Math.floor(Math.min(width, height) / 10), file_name });
+        log(`[Screenshot] Topdown saved ${r.path}`);
+        return r;
+      } catch (err) {
+        log(`[Screenshot] Topdown failed: ${err.message}`);
+        // Fall through to puppeteer attempt if topdown fails and mode was not explicitly topdown
+        if (mode === 'topdown') throw err;
+      }
+    }
+    // Legacy 3D viewer pipeline (kept for environments where WebGL works)
     const viewerPort = config.api.port + 1000;
-    const SCREENSHOT_TIMEOUT_MS = 20000;
+    const SCREENSHOT_TIMEOUT_MS = 60000;
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error(`Screenshot timed out after ${SCREENSHOT_TIMEOUT_MS}ms`)), SCREENSHOT_TIMEOUT_MS);
     });
 
     const doScreenshot = async () => {
       if (!viewerBrowser) {
-        log('[Screenshot] Launching puppeteer (Pi4 optimised)...');
+        log('[Screenshot] Launching puppeteer...');
         viewerBrowser = await puppeteer.launch({
           headless: 'new',
           executablePath: '/usr/bin/chromium',
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
-            '--use-angle=swiftshader',
             '--disable-gpu',
             '--single-process',
             '--no-zygote',
             '--disable-dev-shm-usage',
-            '--renderer-process-limit=1',
-            '--disable-features=site-per-process,IsolateOrigins',
-            '--disable-background-networking',
-            '--disable-background-timer-throttling',
-            '--disable-breakpad',
-            '--disable-client-side-phishing-detection',
-            '--disable-component-extensions-with-background-pages',
-            '--disable-default-apps',
-            '--disable-extensions',
-            '--disable-sync',
-            '--disable-translate',
-            '--memory-pressure-off',
           ],
         });
       }
@@ -3153,10 +3307,12 @@ async collect({ block, count = 1 }) {
         await viewerPage.setViewport({ width, height });
         log(`[Screenshot] Opening viewer at :${viewerPort}...`);
         await viewerPage.goto(`http://localhost:${viewerPort}`, {
-          waitUntil: 'networkidle2',
-          timeout: 12000,
+          waitUntil: 'domcontentloaded',
+          timeout: 30000,
         });
-        await new Promise(r => setTimeout(r, 2000));
+        log('[Screenshot] Page loaded, waiting for WebGL render...');
+        await new Promise(r => setTimeout(r, 8000));
+        log('[Screenshot] Render delay complete');
       }
 
       await viewerPage.setViewport({ width, height });
