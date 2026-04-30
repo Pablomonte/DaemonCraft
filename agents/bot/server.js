@@ -3055,70 +3055,13 @@ async collect({ block, count = 1 }) {
   // Screenshot — Prismarine-viewer + Puppeteer (replaces mine-photo)
   // ──────────────────────────────────────────────────────────────────
 
+  // ──────────────────────────────────────────────────────────────────
+
   async screenshot({ width = 1280, height = 720, file_name }) {
-    ensureBot();
-    const viewerPort = config.api.port + 1000;
-
-    // Overall timeout wrapper so a hung puppeteer doesn't block the HTTP server forever
-    const SCREENSHOT_TIMEOUT_MS = 25000;
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error(`Screenshot timed out after ${SCREENSHOT_TIMEOUT_MS}ms`)), SCREENSHOT_TIMEOUT_MS);
-    });
-
-    const doScreenshot = async () => {
-      // Lazy-init puppeteer browser (reuse across calls)
-      if (!viewerBrowser) {
-        log('[Screenshot] Launching puppeteer...');
-        viewerBrowser = await puppeteer.launch({
-          headless: 'new',
-          executablePath: '/usr/bin/chromium',
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--use-angle=swiftshader',
-          ],
-        });
-      }
-
-      if (!viewerPage) {
-        viewerPage = await viewerBrowser.newPage();
-        await viewerPage.setViewport({ width, height });
-        log(`[Screenshot] Opening viewer at :${viewerPort}...`);
-        await viewerPage.goto(`http://localhost:${viewerPort}`, {
-          waitUntil: 'networkidle2',
-          timeout: 15000,
-        });
-        // Allow WebGL/Three.js to render a few frames
-        await new Promise(r => setTimeout(r, 4000));
-      }
-
-      await viewerPage.setViewport({ width, height });
-      let fname = file_name || `screenshot_${config.mc.username}_${Date.now()}.png`;
-      if (!fname.endsWith('.png')) fname += '.png';
-      const outPath = path.join(SCREENSHOT_DIR, fname);
-      await viewerPage.screenshot({ path: outPath, fullPage: false });
-      log(`[Screenshot] Saved ${outPath}`);
-
-      return {
-        result: `Screenshot saved: ${outPath}`,
-        path: outPath,
-        width,
-        height,
-      };
-    };
-
-    try {
-      return await Promise.race([doScreenshot(), timeoutPromise]);
-    } catch (err) {
-      log(`[Screenshot] Error: ${err.message}`);
-      // Kill stale browser/page so next call starts fresh
-      try { if (viewerPage) await viewerPage.close(); } catch {}
-      try { if (viewerBrowser) await viewerBrowser.close(); } catch {}
-      viewerPage = null;
-      viewerBrowser = null;
-      throw err;
-    }
+    // Screenshots disabled on Raspberry Pi (headless, no GPU, Chromium is too heavy)
+    throw new Error('Screenshots are disabled on this device. Use mc_perceive(type="scene" or "nearby") to inspect the world instead.');
   },
+
 
   // ═══════════════════════════════════════════════════════════════════
   // Planning — Persistent goal & task state
@@ -3697,8 +3640,12 @@ const httpServer = http.createServer(async (req, res) => {
         }
         const taskId = `${actionName}_${Date.now()}`;
         currentTask = { id: taskId, action: actionName, status: 'running', started: Date.now(), result: null, error: null };
-        // Fire and forget — runs in background
-        actionFn(body).then(result => {
+        // Background tasks get a 5-minute safety timeout so they can't hang forever
+        const TASK_TIMEOUT_MS = 300000;
+        const taskTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Background task "${actionName}" timed out after ${TASK_TIMEOUT_MS}ms`)), TASK_TIMEOUT_MS)
+        );
+        Promise.race([actionFn(body), taskTimeout]).then(result => {
           if (currentTask && currentTask.id === taskId && currentTask.status === 'running') {
             currentTask.status = 'done';
             currentTask.result = result;
@@ -3738,8 +3685,14 @@ const httpServer = http.createServer(async (req, res) => {
         return respond(res, 400, { ok: false, error: `Unknown action "${actionName}". Available: ${available}` });
       }
 
+      // Global 30s timeout so pathfinder-heavy actions cannot block the server
+      const ACTION_TIMEOUT_MS = 30000;
+      const actionTimeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Action "${actionName}" timed out after ${ACTION_TIMEOUT_MS}ms`)), ACTION_TIMEOUT_MS)
+      );
+
       try {
-        const result = await actionFn(body);
+        const result = await Promise.race([actionFn(body), actionTimeout]);
         actionHistory.push({ action: actionName, status: 'done', time: Date.now() });
         if (actionHistory.length > MAX_ACTION_HISTORY) actionHistory.shift();
         broadcastDashboard('actions', actionHistory.slice(-50));
