@@ -3059,45 +3059,65 @@ async collect({ block, count = 1 }) {
     ensureBot();
     const viewerPort = config.api.port + 1000;
 
-    // Lazy-init puppeteer browser (reuse across calls)
-    if (!viewerBrowser) {
-      log('[Screenshot] Launching puppeteer...');
-      viewerBrowser = await puppeteer.launch({
-        headless: 'new',
-        executablePath: '/usr/bin/chromium',
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--use-angle=swiftshader',
-        ],
-      });
-    }
+    // Overall timeout wrapper so a hung puppeteer doesn't block the HTTP server forever
+    const SCREENSHOT_TIMEOUT_MS = 25000;
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Screenshot timed out after ${SCREENSHOT_TIMEOUT_MS}ms`)), SCREENSHOT_TIMEOUT_MS);
+    });
 
-    if (!viewerPage) {
-      viewerPage = await viewerBrowser.newPage();
+    const doScreenshot = async () => {
+      // Lazy-init puppeteer browser (reuse across calls)
+      if (!viewerBrowser) {
+        log('[Screenshot] Launching puppeteer...');
+        viewerBrowser = await puppeteer.launch({
+          headless: 'new',
+          executablePath: '/usr/bin/chromium',
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--use-angle=swiftshader',
+          ],
+        });
+      }
+
+      if (!viewerPage) {
+        viewerPage = await viewerBrowser.newPage();
+        await viewerPage.setViewport({ width, height });
+        log(`[Screenshot] Opening viewer at :${viewerPort}...`);
+        await viewerPage.goto(`http://localhost:${viewerPort}`, {
+          waitUntil: 'networkidle2',
+          timeout: 15000,
+        });
+        // Allow WebGL/Three.js to render a few frames
+        await new Promise(r => setTimeout(r, 4000));
+      }
+
       await viewerPage.setViewport({ width, height });
-      log(`[Screenshot] Opening viewer at :${viewerPort}...`);
-      await viewerPage.goto(`http://localhost:${viewerPort}`, {
-        waitUntil: 'networkidle2',
-        timeout: 30000,
-      });
-      // Allow WebGL/Three.js to render a few frames
-      await new Promise(r => setTimeout(r, 4000));
-    }
+      let fname = file_name || `screenshot_${config.mc.username}_${Date.now()}.png`;
+      if (!fname.endsWith('.png')) fname += '.png';
+      const outPath = path.join(SCREENSHOT_DIR, fname);
+      await viewerPage.screenshot({ path: outPath, fullPage: false });
+      log(`[Screenshot] Saved ${outPath}`);
 
-    await viewerPage.setViewport({ width, height });
-    let fname = file_name || `screenshot_${config.mc.username}_${Date.now()}.png`;
-    if (!fname.endsWith('.png')) fname += '.png';
-    const outPath = path.join(SCREENSHOT_DIR, fname);
-    await viewerPage.screenshot({ path: outPath, fullPage: false });
-    log(`[Screenshot] Saved ${outPath}`);
-
-    return {
-      result: `Screenshot saved: ${outPath}`,
-      path: outPath,
-      width,
-      height,
+      return {
+        result: `Screenshot saved: ${outPath}`,
+        path: outPath,
+        width,
+        height,
+      };
     };
+
+    try {
+      return await Promise.race([doScreenshot(), timeoutPromise]);
+    } catch (err) {
+      log(`[Screenshot] Error: ${err.message}`);
+      // Kill stale browser/page so next call starts fresh
+      try { if (viewerPage) await viewerPage.close(); } catch {}
+      try { if (viewerBrowser) await viewerBrowser.close(); } catch {}
+      viewerPage = null;
+      viewerBrowser = null;
+      throw err;
+    }
   },
 
   // ═══════════════════════════════════════════════════════════════════
