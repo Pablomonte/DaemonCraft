@@ -965,6 +965,48 @@ function buildSceneSummary({ range = 16 } = {}) {
   };
 }
 
+function scanVolume(x1, y1, z1, x2, y2, z2) {
+  const b = ensureBot();
+  const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+  const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+  const minZ = Math.min(z1, z2), maxZ = Math.max(z1, z2);
+  const dx = maxX - minX + 1, dy = maxY - minY + 1, dz = maxZ - minZ + 1;
+  const MAX_VOLUME_BLOCKS = 4096;
+  if (dx * dy * dz > MAX_VOLUME_BLOCKS) {
+    throw new Error(`Volume too large: ${dx}x${dy}x${dz} = ${dx*dy*dz} blocks. Max ${MAX_VOLUME_BLOCKS}. Use a smaller area.`);
+  }
+
+  const blocks = [];
+  const counts = {};
+  for (let y = minY; y <= maxY; y++) {
+    for (let z = minZ; z <= maxZ; z++) {
+      for (let x = minX; x <= maxX; x++) {
+        const block = b.blockAt(new Vec3(x, y, z));
+        const name = block ? block.name : 'void';
+        counts[name] = (counts[name] || 0) + 1;
+        if (name !== 'air' && name !== 'cave_air' && name !== 'void_air') {
+          blocks.push({ name, x, y, z });
+        }
+      }
+    }
+  }
+
+  const groundY = blocks.length > 0
+    ? Math.round(blocks.filter(b => ['grass_block','dirt','stone','sand','gravel','podzol','coarse_dirt','mycelium'].includes(b.name))
+                   .reduce((sum, b) => sum + b.y, 0) / Math.max(blocks.filter(b => ['grass_block','dirt','stone','sand','gravel','podzol','coarse_dirt','mycelium'].includes(b.name)).length, 1))
+    : minY;
+
+  return {
+    bounds: { x1: minX, y1: minY, z1: minZ, x2: maxX, y2: maxY, z2: maxZ },
+    dimensions: { x: dx, y: dy, z: dz },
+    total_blocks: dx * dy * dz,
+    non_air_blocks: blocks.length,
+    ground_y: groundY,
+    block_counts: counts,
+    obstacles: blocks.slice(0, 80),
+  };
+}
+
 function findVisibleBlocksByName(blockName, { range = 16, count = 10 } = {}) {
   const needle = String(blockName || '').toLowerCase();
   return scanVisibleBlocks({ range })
@@ -3052,14 +3094,83 @@ async collect({ block, count = 1 }) {
   },
 
   // ──────────────────────────────────────────────────────────────────
-  // Screenshot — Prismarine-viewer + Puppeteer (replaces mine-photo)
+  // Screenshot — Prismarine-viewer + Puppeteer (Pi4-optimised)
   // ──────────────────────────────────────────────────────────────────
 
-  // ──────────────────────────────────────────────────────────────────
+  async screenshot({ width = 800, height = 600, file_name }) {
+    ensureBot();
+    const viewerPort = config.api.port + 1000;
+    const SCREENSHOT_TIMEOUT_MS = 20000;
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Screenshot timed out after ${SCREENSHOT_TIMEOUT_MS}ms`)), SCREENSHOT_TIMEOUT_MS);
+    });
 
-  async screenshot({ width = 1280, height = 720, file_name }) {
-    // Screenshots disabled on Raspberry Pi (headless, no GPU, Chromium is too heavy)
-    throw new Error('Screenshots are disabled on this device. Use mc_perceive(type="scene" or "nearby") to inspect the world instead.');
+    const doScreenshot = async () => {
+      if (!viewerBrowser) {
+        log('[Screenshot] Launching puppeteer (Pi4 optimised)...');
+        viewerBrowser = await puppeteer.launch({
+          headless: 'new',
+          executablePath: '/usr/bin/chromium',
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--use-angle=swiftshader',
+            '--disable-gpu',
+            '--single-process',
+            '--no-zygote',
+            '--disable-dev-shm-usage',
+            '--renderer-process-limit=1',
+            '--disable-features=site-per-process,IsolateOrigins',
+            '--disable-background-networking',
+            '--disable-background-timer-throttling',
+            '--disable-breakpad',
+            '--disable-client-side-phishing-detection',
+            '--disable-component-extensions-with-background-pages',
+            '--disable-default-apps',
+            '--disable-extensions',
+            '--disable-sync',
+            '--disable-translate',
+            '--memory-pressure-off',
+          ],
+        });
+      }
+
+      if (!viewerPage) {
+        viewerPage = await viewerBrowser.newPage();
+        await viewerPage.setViewport({ width, height });
+        log(`[Screenshot] Opening viewer at :${viewerPort}...`);
+        await viewerPage.goto(`http://localhost:${viewerPort}`, {
+          waitUntil: 'networkidle2',
+          timeout: 12000,
+        });
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      await viewerPage.setViewport({ width, height });
+      let fname = file_name || `screenshot_${config.mc.username}_${Date.now()}.png`;
+      if (!fname.endsWith('.png')) fname += '.png';
+      const outPath = path.join(SCREENSHOT_DIR, fname);
+      await viewerPage.screenshot({ path: outPath, fullPage: false });
+      log(`[Screenshot] Saved ${outPath}`);
+
+      return {
+        result: `Screenshot saved: ${outPath}`,
+        path: outPath,
+        width,
+        height,
+      };
+    };
+
+    try {
+      return await Promise.race([doScreenshot(), timeoutPromise]);
+    } catch (err) {
+      log(`[Screenshot] Error: ${err.message}`);
+      try { if (viewerPage) await viewerPage.close(); } catch {}
+      try { if (viewerBrowser) await viewerBrowser.close(); } catch {}
+      viewerPage = null;
+      viewerBrowser = null;
+      throw err;
+    }
   },
 
 
@@ -3253,6 +3364,24 @@ const httpServer = http.createServer(async (req, res) => {
       if (path === '/scene') {
         const range = parseInt(url.searchParams.get('range') || '16');
         return respond(res, 200, { ok: true, data: buildSceneSummary({ range: Math.min(range, 24) }) });
+      }
+
+      // 3D volume scan for construction planning
+      if (path === '/volume') {
+        const x1 = parseInt(url.searchParams.get('x1') || '0');
+        const y1 = parseInt(url.searchParams.get('y1') || '0');
+        const z1 = parseInt(url.searchParams.get('z1') || '0');
+        const x2 = parseInt(url.searchParams.get('x2') || '0');
+        const y2 = parseInt(url.searchParams.get('y2') || '0');
+        const z2 = parseInt(url.searchParams.get('z2') || '0');
+        if ([x1,y1,z1,x2,y2,z2].some(v => Number.isNaN(v))) {
+          return respond(res, 400, { ok: false, error: 'x1,y1,z1,x2,y2,z2 required' });
+        }
+        try {
+          return respond(res, 200, { ok: true, data: scanVolume(x1, y1, z1, x2, y2, z2) });
+        } catch (err) {
+          return respond(res, 400, { ok: false, error: err.message });
+        }
       }
 
       // Screenshot via prismarine-viewer + puppeteer

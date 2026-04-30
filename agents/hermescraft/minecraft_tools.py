@@ -214,6 +214,7 @@ _PERCEIVE_GET_ENDPOINTS = {
     "look": "/look",
     "scene": "/scene",
     "screenshot": "/screenshot",
+    "volume": "/volume",
     "map": "/map",
     "read_chat": "/chat",
     "overhear": "/overhear",
@@ -252,6 +253,11 @@ def _handle_mc_perceive(args: dict, **kwargs) -> str:
             w = args.get("width", 1280)
             h = args.get("height", 720)
             path += f'?width={w}&height={h}'
+        elif ptype == "volume":
+            for coord in ("x1", "y1", "z1", "x2", "y2", "z2"):
+                if coord not in args:
+                    return f"Error: {coord} is required for volume perceive"
+            path += f'?x1={args["x1"]}&y1={args["y1"]}&z1={args["z1"]}&x2={args["x2"]}&y2={args["y2"]}&z2={args["z2"]}'
         return _fmt(_api_get(path))
 
     if ptype in _PERCEIVE_POST_ENDPOINTS:
@@ -374,6 +380,13 @@ def _handle_mc_build(args: dict, **kwargs) -> str:
         hollow = args.get("hollow", False)
         mode = "hollow" if hollow else "replace"
         cmd = f"/fill {args['x1']} {args['y1']} {args['z1']} {args['x2']} {args['y2']} {args['z2']} {args['block']} {mode}"
+        return _fmt(_api_post("/chat/send", {"message": cmd}))
+
+    if action == "clear":
+        for coord in ("x1", "y1", "z1", "x2", "y2", "z2"):
+            if coord not in args:
+                return f"Error: {coord} is required for clear"
+        cmd = f"/fill {args['x1']} {args['y1']} {args['z1']} {args['x2']} {args['y2']} {args['z2']} air replace"
         return _fmt(_api_post("/chat/send", {"message": cmd}))
 
     if action == "interact":
