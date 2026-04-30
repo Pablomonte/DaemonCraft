@@ -15,7 +15,7 @@ from pathlib import Path
 
 LOG_FILE = Path.home() / ".local/share/daemoncraft/siqui/logs/Siqui_agent.log"
 MAX_LINES = 50
-BLOCKED_THRESHOLD = 15
+BLOCKED_THRESHOLD = 7
 
 
 def main() -> int:
