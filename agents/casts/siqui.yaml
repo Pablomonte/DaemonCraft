@@ -21,6 +21,7 @@ agents:
     provider: kimi-coding
     base_url: https://api.kimi.com/coding/v1
     always_chat: true
+    interval: 3
     extra_toolsets:
       - vision
     gamemode: creative

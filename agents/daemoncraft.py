@@ -492,7 +492,8 @@ def cmd_start(cast_name: str, cast: dict, mc_host: str, mc_port: int):
         # 3. Start agent
         always_chat = agent.get("always_chat", False)
         max_chat_chars = agent.get("max_chat_chars")
-        start_agent(cast_name, name, port, always_chat=always_chat, max_chat_chars=max_chat_chars)
+        interval = agent.get("interval", 7)
+        start_agent(cast_name, name, port, interval=interval, always_chat=always_chat, max_chat_chars=max_chat_chars)
 
         time.sleep(2)  # Stagger to avoid resource spikes
 
@@ -705,7 +706,8 @@ def cmd_daemon(cast_name: str, cast: dict, mc_host: str, mc_port: int):
                 log(f"Agent {name} down, restarting...", cast_name)
                 try:
                     always_chat = agent.get("always_chat", False)
-                    start_agent(cast_name, name, port, always_chat=always_chat)
+                    interval = agent.get("interval", 7)
+                    start_agent(cast_name, name, port, interval=interval, always_chat=always_chat)
                 except SystemExit:
                     pass
                 time.sleep(5)
