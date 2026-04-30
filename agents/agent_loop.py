@@ -1010,7 +1010,6 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                 turn_in_progress.clear()
                 send_heartbeat(next_turn_in=None, turn_in_progress=False)
                 try:
-                    import os
                     os.remove("/tmp/siqui_turn_start.timestamp")
                 except Exception:
                     pass
