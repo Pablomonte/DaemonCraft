@@ -292,29 +292,16 @@ def _ws_on_message(ws, message):
                         last_chat_time = max(new_times)
             pass
         elif msg_type == "blueprint_updated":
-            bp_name = data.get("data", {}).get("name", "unknown")
-            with message_lock:
-                pending_messages.append({
-                    "from": "Dashboard",
-                    "message": f"Blueprint '{bp_name}' was updated via the dashboard. Run mc_story(action='load_blueprint', name='{bp_name}') to reload the latest version.",
-                    "time": int(time.time() * 1000),
-                })
-            chat_event.set()
+            # Gateway owns blueprint narration. Loop ignores.
+            pass
         elif msg_type == "quest_event":
-            event_data = data.get("data", {})
-            with message_lock:
-                pending_messages.append({
-                    "from": "QuestEngine",
-                    "message": event_data.get("message", "A quest event occurred."),
-                    "time": int(time.time() * 1000),
-                })
-            chat_event.set()
-            # Quest events can still interrupt (they are system-generated, not chat)
+            # Gateway owns quest narration. Loop only interrupts current turn
+            # so the next heartbeat can react to updated story state.
             if turn_in_progress.is_set() and current_agent is not None:
                 try:
                     cancel_event.set()
                     current_agent._interrupt_requested = True
-                    print("[ws] Quest event arrived during turn — interrupting to respond now", flush=True)
+                    print("[ws] Quest event arrived during turn — interrupting", flush=True)
                 except Exception:
                     pass
         elif msg_type == "interrupt":

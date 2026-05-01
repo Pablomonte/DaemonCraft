@@ -23,7 +23,6 @@ agents:
     model: MiniMax-M2.7
     provider: minimax
     base_url: https://api.minimax.io/anthropic
-    always_chat: true
     extra_toolsets:
       - vision
     gamemode: creative

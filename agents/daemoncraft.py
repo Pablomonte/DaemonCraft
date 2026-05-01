@@ -400,7 +400,6 @@ def start_agent(
     agent_name: str,
     port: int,
     interval: int = 30,
-    always_chat: bool = False,
     max_chat_chars: int | None = None,
 ) -> int:
     """Start the Hermes agent using the native persistent loop. Returns PID."""
@@ -423,8 +422,6 @@ def start_agent(
         # Enable send_message tool by telling Hermes we're on a messaging platform.
         "HERMES_SESSION_PLATFORM": "telegram",
     }
-    if always_chat:
-        env["MC_ALWAYS_CHAT"] = "1"
     if max_chat_chars:
         env["MC_MAX_CHAT_CHARS"] = str(max_chat_chars)
 
@@ -490,9 +487,8 @@ def cmd_start(cast_name: str, cast: dict, mc_host: str, mc_port: int):
                 log(f"Warning: could not set gamemode for {name}: {e}", cast_name)
 
         # 3. Start agent
-        always_chat = agent.get("always_chat", False)
         max_chat_chars = agent.get("max_chat_chars")
-        start_agent(cast_name, name, port, always_chat=always_chat, max_chat_chars=max_chat_chars)
+        start_agent(cast_name, name, port, max_chat_chars=max_chat_chars)
 
         time.sleep(2)  # Stagger to avoid resource spikes
 
@@ -704,8 +700,7 @@ def cmd_daemon(cast_name: str, cast: dict, mc_host: str, mc_port: int):
                     remove_pid(cast_name, name, "agent")
                 log(f"Agent {name} down, restarting...", cast_name)
                 try:
-                    always_chat = agent.get("always_chat", False)
-                    start_agent(cast_name, name, port, always_chat=always_chat)
+                    start_agent(cast_name, name, port)
                 except SystemExit:
                     pass
                 time.sleep(5)
