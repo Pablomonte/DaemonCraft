@@ -1,35 +1,28 @@
 # Changelog
 
-## [2026-05-01] API Endpoint & External Config Fix
-
-### Added
-- **`deploy/hermes/profiles/siqui/`** — Versioned copy of the live Hermes profile
-  - `config.yaml` with corrected structure (`model.base_url` + `providers.*.base_url`)
-  - `.env` template with `MC_API_URL` and `KIMI_API_KEY` placeholder
-  - `README.md` explaining why a Moonshot API key is required (Kimi Coding OAuth
-does not support `kimi-k2.6` on `api.kimi.com/coding/v1`)
-- **`agent_loop.py`** loads the profile `.env` via `python-dotenv` before
-  initialising `AIAgent`, and passes `api_key` explicitly.
-  Without this, Hermes ignores the profile `base_url` and uses the OAuth-based
-  `kimi-coding` router that hard-codes `api.kimi.com/coding/v1`.
+## [2026-05-01] Revert to Kimi OAuth (kimi-for-coding)
 
 ### Changed
-- **`daemoncraft.py`** (`ensure_hermes_profile`): now writes `base_url` under `model:`
-  in addition to `providers:`.  Hermes' `runtime_provider.py` only reads
-  `model_cfg.get("base_url")`, so without this key the `kimi-coding` provider
-  hard-codes `https://api.kimi.com/coding/v1` which returns HTTP 403 for Moonshot keys.
+- **`agents/casts/siqui.yaml`**:
+  - Model reverted from `kimi-k2.6` → `kimi-for-coding`
+  - Base URL reverted from `api.moonshot.ai/v1` → `api.kimi.com/coding/v1`
+- **`daemoncraft.py`** & **`agent_loop.py`** reverted to `53922de` state
+  - Removed `model.base_url` write in daemoncraft.py
+  - Removed profile `.env` loading and explicit `api_key` pass in agent_loop.py
+- **Reason**: `kimi-k2.6` is rejected by `api.kimi.com/coding/v1` with
+  `access_terminated_error`. The Kimi CLI OAuth token only works on the Coding
+  endpoint, and `kimi-for-coding` is the compatible model for that plan.
+
+### Added
+- **`deploy/hermes/profiles/siqui/`** — Versioned reference for the live Hermes profile
+  - `config.yaml` (OAuth template)
+  - `.env` (`MC_API_URL` only)
+  - `README.md` explaining the OAuth flow
 
 ### External Changes Documented
-- `~/.hermes/profiles/siqui/config.yaml` — manually created 2026-05-01 20:01
-  with `base_url: https://api.moonshot.ai/v1` (structure corrected by repo fix above)
-- `~/.hermes/profiles/siqui/.env` — manually created 2026-05-01 20:01
-- `~/.hermes/profiles/siqui/SOUL.md` — manually updated 2026-05-01 20:01
-
-### Fixed
-- HTTP 403 from Kimi API caused by endpoint mismatch (`api.kimi.com/coding/v1` vs `api.moonshot.ai/v1`)
-- Root cause: Hermes `resolve_provider_client` ignored the profile `base_url` when no
-  explicit `api_key` was passed to `AIAgent`, falling back to Kimi CLI OAuth which
-  only works on the Coding endpoint and rejects `kimi-k2.6`.
+- `~/.hermes/profiles/siqui/config.yaml` — managed by daemoncraft.py
+- `~/.hermes/profiles/siqui/.env` — managed by daemoncraft.py
+- `~/.hermes/profiles/siqui/SOUL.md` — updated 2026-05-01 20:01
 
 ---
 

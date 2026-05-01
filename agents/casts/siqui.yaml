@@ -17,9 +17,9 @@ agents:
   - name: Siqui
     template: rolemaster/siqui
     port: 3002
-    model: kimi-k2.6
+    model: kimi-for-coding
     provider: kimi-coding
-    base_url: https://api.moonshot.ai/v1
+    base_url: https://api.kimi.com/coding/v1
     always_chat: true
     interval: 3
     extra_toolsets:

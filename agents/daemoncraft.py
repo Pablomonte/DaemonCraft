@@ -289,8 +289,6 @@ def setup_agent_profile(
         if provider:
             config["model"]["provider"] = provider
         if base_url:
-            config["model"]["base_url"] = base_url
-        if base_url:
             config["providers"] = config.get("providers", {})
             config["providers"][provider] = {
                 "provider": provider,

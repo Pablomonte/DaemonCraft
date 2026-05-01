@@ -816,12 +816,6 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
     """Run an AIAgent in a persistent event-driven loop."""
     config, profile_dir = load_profile_config(profile_name)
 
-    # Load profile .env so API keys are available for AIAgent
-    from dotenv import load_dotenv
-    env_path = profile_dir / ".env"
-    if env_path.exists():
-        load_dotenv(env_path, override=True)
-
     model_cfg = config.get("model", {})
     if isinstance(model_cfg, dict):
         model = model_cfg.get("default", "")
@@ -860,14 +854,10 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
     print(f"[loop] MC_API_URL: {mc_api_url}")
     print(f"[loop] Interval: {interval}s")
 
-    # Resolve API key from environment (loaded from profile .env above)
-    api_key = os.getenv("KIMI_API_KEY") or os.getenv("MOONSHOT_API_KEY") or ""
-
     agent = AIAgent(
         model=model,
         provider=provider,
         base_url=base_url,
-        api_key=api_key,
         enabled_toolsets=toolsets,
         ephemeral_system_prompt=system_prompt,
         platform="minecraft",
