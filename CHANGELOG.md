@@ -1,5 +1,30 @@
 # Changelog
 
+## [2026-05-01] API Endpoint & External Config Fix
+
+### Added
+- **`deploy/hermes/profiles/siqui/`** — Versioned copy of the live Hermes profile
+  - `config.yaml` with corrected structure (`model.base_url` + `providers.*.base_url`)
+  - `.env` with `MC_API_URL=http://localhost:3002`
+  - `README.md` explaining why `model.base_url` is required for Hermes to honour custom endpoints
+
+### Changed
+- **`daemoncraft.py`** (`ensure_hermes_profile`): now writes `base_url` under `model:`
+  in addition to `providers:`.  Hermes' `runtime_provider.py` only reads
+  `model_cfg.get("base_url")`, so without this key the `kimi-coding` provider
+  hard-codes `https://api.kimi.com/coding/v1` and returns HTTP 403 for Moonshot keys.
+
+### External Changes Documented
+- `~/.hermes/profiles/siqui/config.yaml` — manually created 2026-05-01 20:01
+  with `base_url: https://api.moonshot.ai/v1` (structure corrected by repo fix above)
+- `~/.hermes/profiles/siqui/.env` — manually created 2026-05-01 20:01
+- `~/.hermes/profiles/siqui/SOUL.md` — manually updated 2026-05-01 20:01
+
+### Fixed
+- HTTP 403 from Kimi API caused by endpoint mismatch (`api.kimi.com/coding/v1` vs `api.moonshot.ai/v1`)
+
+---
+
 ## [2026-04-30] Chat Pipeline Consolidation
 
 ### Added
