@@ -3898,7 +3898,7 @@ const httpServer = http.createServer(async (req, res) => {
           return respond(res, 200, { ok: true, result: 'Message sent.', from: chatFrom });
         }
 
-        const result = await sendToMcChat(message, { source: "http" });
+        const result = await sendToMcChat(message, { source: "tool" });
         return respond(res, 200, result);
       }
 

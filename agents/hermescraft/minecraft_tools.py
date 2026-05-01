@@ -38,15 +38,25 @@ Environment:
     MC_API_URL  - Bot server URL (default: http://localhost:3001)
 """
 
+import asyncio
 import json
 import os
 import re
 import threading
+import time
 import urllib.request
 import urllib.error
 from typing import Any, Dict, Optional
 
 from tools.registry import registry, tool_error
+
+# Vision integration — mc_screenshot auto-analyzes via vision_analyze
+try:
+    from model_tools import _run_async
+    from tools.vision_tools import vision_analyze_tool
+    _VISION_AVAILABLE = True
+except Exception:
+    _VISION_AVAILABLE = False
 
 
 MC_API_URL = os.getenv("MC_API_URL", "http://localhost:3001")
@@ -1013,11 +1023,21 @@ MC_PLAN_SCHEMA = {
 # 10. mc_screenshot — Ray-traced world capture
 # ═══════════════════════════════════════════════════════════════════
 
-def _handle_mc_screenshot(args: dict, **kwargs) -> str:
-    """Take a screenshot of the Minecraft world from the bot's first-person perspective.
+_MINECRAFT_VISION_PROMPT = (
+    "You are analyzing a top-down Minecraft block-map screenshot. "
+    "Describe in detail: terrain elevation, water/land ratio, trees, structures, "
+    "paths, caves, lava, notable landmarks, and approximate block coordinates. "
+    "Mention if the bot is near cliffs, water, or built structures. "
+    "Be specific about distances and directions (N/S/E/W)."
+)
 
-    Uses prismarine-viewer (Three.js WebGL renderer) + puppeteer headless Chrome.
-    The image is saved as PNG to the bot server and the path is returned.
+
+def _handle_mc_screenshot(args: dict, **kwargs) -> str:
+    """Take a screenshot of the Minecraft world and analyze it visually.
+
+    Uses the bot's top-down block-map renderer (node-canvas, no GPU needed).
+    The image is then fed through vision_analyze (Gemini 3 Flash via OpenRouter)
+    to produce a textual description the model can read.
     """
     payload: Dict[str, Any] = {}
     if "width" in args:
@@ -1037,12 +1057,41 @@ def _handle_mc_screenshot(args: dict, **kwargs) -> str:
     path = resp.get("path", "unknown")
     width = resp.get("width", "?")
     height = resp.get("height", "?")
-    return f"Screenshot saved to {path} ({width}x{height})"
+
+    if not _VISION_AVAILABLE or not path or path == "unknown":
+        return f"Screenshot saved to {path} ({width}x{height})"
+
+    # Auto-analyze the image so the model can "see" without calling vision_analyze manually
+    try:
+        result = _run_async(
+            vision_analyze_tool(
+                image_url=path,
+                user_prompt=_MINECRAFT_VISION_PROMPT,
+            )
+        )
+        # result is a JSON string: {"success": bool, "analysis": str}
+        data = json.loads(result)
+        if data.get("success"):
+            analysis = data.get("analysis", "")
+            return (
+                f"Screenshot ({width}x{height}) — Visual analysis:\n{analysis}\n"
+                f"[Original file: {path}]"
+            )
+        else:
+            return (
+                f"Screenshot saved to {path} ({width}x{height}). "
+                f"Vision analysis failed: {data.get('analysis', 'Unknown error')}"
+            )
+    except Exception as exc:
+        return (
+            f"Screenshot saved to {path} ({width}x{height}). "
+            f"Vision analysis unavailable: {exc}"
+        )
 
 
 MC_SCREENSHOT_SCHEMA = {
     "name": "mc_screenshot",
-    "description": "Take a visual snapshot of the Minecraft world around the bot. On headless/Pi4 environments this produces a top-down block map (like a minimap) showing terrain, trees, water, and structures in a 40-block radius. On desktop environments with GPU it can produce a 3D first-person view. The returned path is an absolute PNG file path. Use this BEFORE building to see the terrain, or AFTER building to verify results. If something looks wrong in the image, adjust your coordinates.",
+    "description": "Take a visual snapshot of the Minecraft world around the bot. On headless/Pi4 environments this produces a top-down block map (like a minimap) showing terrain, trees, water, and structures in a 40-block radius. On desktop environments with GPU it can produce a 3D first-person view. The image is automatically analyzed by a vision AI (Gemini 3 Flash) and returned as a TEXTUAL DESCRIPTION of the terrain, elevation, water, trees, structures, and landmarks. Use this BEFORE building to assess the terrain, or AFTER building to verify results. If something looks wrong, adjust your coordinates.",
     "parameters": {
         "type": "object",
         "properties": {
