@@ -681,7 +681,7 @@ function ensureBot() {
 // Chat Chunking & Delivery
 // ═══════════════════════════════════════════════════════════════════
 
-function chunkForMc(text, maxChars = MC_FRAGMENT_MAX_CHARS, maxFragments = MC_MAX_FRAGMENTS) {
+function chunkForMc(text, maxChars = MC_FRAGMENT_MAX_CHARS, maxFragments = MC_MAX_FRAGMENTS, byteLimit = MC_PROTOCOL_BYTE_LIMIT) {
   text = text.replace(/\s+/g, ' ').trim();
   if (!text) return { fragments: [], truncated: false };
 
@@ -721,7 +721,7 @@ function chunkForMc(text, maxChars = MC_FRAGMENT_MAX_CHARS, maxFragments = MC_MA
     }
   }
 
-  return { fragments: fragments.map(byteCap), truncated };
+  return { fragments: fragments.map(f => byteCap(f, byteLimit)), truncated };
 }
 
 function wordSplit(s, maxChars) {
@@ -741,15 +741,16 @@ function wordSplit(s, maxChars) {
   return out;
 }
 
-function byteCap(s) {
-  if (Buffer.byteLength(s, 'utf8') <= MC_PROTOCOL_BYTE_LIMIT) return s;
+function byteCap(s, limit = MC_PROTOCOL_BYTE_LIMIT) {
+  if (Buffer.byteLength(s, 'utf8') <= limit) return s;
   let cut = s;
-  while (Buffer.byteLength(cut, 'utf8') > MC_PROTOCOL_BYTE_LIMIT) cut = cut.slice(0, -1);
+  while (Buffer.byteLength(cut, 'utf8') > limit) cut = cut.slice(0, -1);
   return cut;
 }
 
 async function sendToMcChat(text, { source = "auto", target = null } = {}) {
-  const { fragments, truncated } = chunkForMc(text);
+  const overhead = target ? Buffer.byteLength(`/tell ${target} `, 'utf8') : 0;
+  const { fragments, truncated } = chunkForMc(text, MC_FRAGMENT_MAX_CHARS, MC_MAX_FRAGMENTS, MC_PROTOCOL_BYTE_LIMIT - overhead);
   if (fragments.length === 0) {
     return { ok: true, fragments_sent: 0, fragments_dropped: 0, reason: "empty" };
   }
@@ -3597,13 +3598,11 @@ const httpServer = http.createServer(async (req, res) => {
 
       // Send chat message from agent to Minecraft — POST /chat/send
       // Optional body.as: "Server" | player_name — sends as that identity instead of the bot.
-      // Optional body.target: "broadcast" | player_name — destination.
-      // Optional body.whisper: true — sends as /tell when target is a player.
+      // Optional body.target: "broadcast" | player_name — destination. Non-broadcast targets are always whispered.
       if (path === '/chat/send') {
         const message = body?.message;
         const sender = body?.as;
         const target = body?.target;
-        const whisper = body?.whisper === true;
         if (!message || typeof message !== 'string') {
           return respond(res, 400, { ok: false, error: "missing or invalid 'message'" });
         }
