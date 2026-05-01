@@ -12,19 +12,35 @@ sudo -u siqui cp deploy/hermes/profiles/siqui/config.yaml ~/.hermes/profiles/siq
 sudo -u siqui cp deploy/hermes/profiles/siqui/.env       ~/.hermes/profiles/siqui/.env
 ```
 
-> ⚠️ **IMPORTANT**: `daemoncraft.py` regenerates this profile on every start.  
-> The fix in `daemoncraft.py` (commit after `53922de`) now writes `base_url` under
-> `model:` **as well as** under `providers:`, so Hermes actually honours the
-> Moonshot endpoint instead of falling back to the hard-coded `api.kimi.com/coding/v1`.
+> ⚠️ **IMPORTANT**: `daemoncraft.py` regenerates `config.yaml` on every start, but
+> now writes `base_url` under `model:` **as well as** under `providers:` so Hermes
+> honours the Moonshot endpoint. The `.env` file is preserved across restarts.
 
-## Why this matters
+## Required API Key
 
-Hermes reads the API endpoint from `model.base_url` (not `providers.*.base_url`).
-Without `model.base_url`, the `kimi-coding` provider hard-codes
-`https://api.kimi.com/coding/v1`, which returns **HTTP 403** for Moonshot keys.
+The Kimi Coding OAuth token (from `kimi login`) only works on `api.kimi.com/coding/v1`,
+and that endpoint **rejects** `kimi-k2.6` with:
+
+> "Kimi For Coding is currently only available for Coding Agents such as Kimi CLI..."
+
+To use `kimi-k2.6` you need a **Moonshot API key** (`sk-...`):
+
+1. Go to https://platform.moonshot.ai/ and create an API key.
+2. Add it to `~/.hermes/profiles/siqui/.env`:
+   ```bash
+   KIMI_API_KEY=sk-your-key-here
+   ```
+3. Restart the service:
+   ```bash
+   sudo systemctl restart daemoncraft-siqui.service
+   ```
+
+`agent_loop.py` now loads the profile `.env` and passes the key to `AIAgent`,
+preventing Hermes from falling back to the OAuth-based `kimi-coding` router that
+hard-codes `api.kimi.com/coding/v1`.
 
 ## External changes tracked here
 
-- `~/.hermes/profiles/siqui/config.yaml` — created 2026-05-01 20:01 by manual edit
-- `~/.hermes/profiles/siqui/.env` — created 2026-05-01 20:01 with `MC_API_URL`
-- `~/.hermes/profiles/siqui/SOUL.md` — updated 2026-05-01 20:01 (copy of `agents/prompts/rolemaster/siqui.md`)
+- `~/.hermes/profiles/siqui/config.yaml` — created 2026-05-01 20:01
+- `~/.hermes/profiles/siqui/.env` — created 2026-05-01 20:01
+- `~/.hermes/profiles/siqui/SOUL.md` — updated 2026-05-01 20:01

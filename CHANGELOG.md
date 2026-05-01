@@ -5,14 +5,19 @@
 ### Added
 - **`deploy/hermes/profiles/siqui/`** — Versioned copy of the live Hermes profile
   - `config.yaml` with corrected structure (`model.base_url` + `providers.*.base_url`)
-  - `.env` with `MC_API_URL=http://localhost:3002`
-  - `README.md` explaining why `model.base_url` is required for Hermes to honour custom endpoints
+  - `.env` template with `MC_API_URL` and `KIMI_API_KEY` placeholder
+  - `README.md` explaining why a Moonshot API key is required (Kimi Coding OAuth
+does not support `kimi-k2.6` on `api.kimi.com/coding/v1`)
+- **`agent_loop.py`** loads the profile `.env` via `python-dotenv` before
+  initialising `AIAgent`, and passes `api_key` explicitly.
+  Without this, Hermes ignores the profile `base_url` and uses the OAuth-based
+  `kimi-coding` router that hard-codes `api.kimi.com/coding/v1`.
 
 ### Changed
 - **`daemoncraft.py`** (`ensure_hermes_profile`): now writes `base_url` under `model:`
   in addition to `providers:`.  Hermes' `runtime_provider.py` only reads
   `model_cfg.get("base_url")`, so without this key the `kimi-coding` provider
-  hard-codes `https://api.kimi.com/coding/v1` and returns HTTP 403 for Moonshot keys.
+  hard-codes `https://api.kimi.com/coding/v1` which returns HTTP 403 for Moonshot keys.
 
 ### External Changes Documented
 - `~/.hermes/profiles/siqui/config.yaml` — manually created 2026-05-01 20:01
@@ -22,6 +27,9 @@
 
 ### Fixed
 - HTTP 403 from Kimi API caused by endpoint mismatch (`api.kimi.com/coding/v1` vs `api.moonshot.ai/v1`)
+- Root cause: Hermes `resolve_provider_client` ignored the profile `base_url` when no
+  explicit `api_key` was passed to `AIAgent`, falling back to Kimi CLI OAuth which
+  only works on the Coding endpoint and rejects `kimi-k2.6`.
 
 ---
 
