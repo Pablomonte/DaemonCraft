@@ -3485,6 +3485,10 @@ const httpServer = http.createServer(async (req, res) => {
         if (!filename) return respond(res, 400, { ok: false, error: 'Invalid filename' });
         const ttsDir = '/tmp/daemoncraft-tts';
         const filePath = `${ttsDir}/${filename}`;
+        // Belt-and-suspenders: ensure the resolved path stays inside ttsDir
+        if (!filePath.startsWith(ttsDir + '/')) {
+          return respond(res, 400, { ok: false, error: 'Invalid filename' });
+        }
         try {
           if (!fs.existsSync(filePath)) {
             return respond(res, 404, { ok: false, error: 'Audio file not found' });

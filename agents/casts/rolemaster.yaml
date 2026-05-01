@@ -36,7 +36,7 @@ agents:
 # Supported providers: edge (free), openai, elevenlabs, minimax, mistral
 voice:
   tts_provider: edge
-  voice_id: es-ES-AlvaroNeural        # Warm, mature Spanish male voice
+  voice_id: es-MX-JorgeNeural        # Warm, mature Spanish male voice (Mexican accent)
   # Fallback / future options:
   # voice_style: warm
   # speed: 1.0
