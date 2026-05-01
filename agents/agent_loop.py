@@ -689,14 +689,20 @@ def _daemon_guardian_loop():
             "water_breathing": any("water" in k.lower() and "breathing" in k.lower() for k in effects),
         }
 
+    # Track last application time to avoid spam when /bot/effects is broken
+    _last_applied = {"resistance": 0, "fire_resistance": 0, "water_breathing": 0, "gamemode": 0}
+    _EFFECT_COOLDOWN = 60  # seconds
+
     while True:
         _time.sleep(DAEMON_GUARDIAN_INTERVAL)
         try:
             if not _godmode_enabled():
                 continue
 
+            now = _time.time()
+
             # Enforce creative mode ONLY if not already creative
-            if not _check_gamemode():
+            if not _check_gamemode() and now - _last_applied["gamemode"] > _EFFECT_COOLDOWN:
                 payload = json.dumps({"message": f"/gamemode creative {BOT_USERNAME}"}).encode("utf-8")
                 req = urllib.request.Request(
                     f"{MC_API_URL}/chat/send",
@@ -705,11 +711,12 @@ def _daemon_guardian_loop():
                     method="POST",
                 )
                 urllib.request.urlopen(req, timeout=3)
+                _last_applied["gamemode"] = now
                 print("[daemon_guardian] Restored creative mode", flush=True)
 
-            # Check which effects are missing, apply only those
+            # Check which effects are missing, apply only those (with cooldown)
             effects = _check_effects()
-            if not effects["resistance"]:
+            if not effects["resistance"] and now - _last_applied["resistance"] > _EFFECT_COOLDOWN:
                 payload = json.dumps({
                     "message": f"/effect give {BOT_USERNAME} minecraft:resistance 999999 255 true"
                 }).encode("utf-8")
@@ -720,9 +727,10 @@ def _daemon_guardian_loop():
                     method="POST",
                 )
                 urllib.request.urlopen(req, timeout=3)
+                _last_applied["resistance"] = now
                 print("[daemon_guardian] Applied resistance", flush=True)
 
-            if not effects["fire_resistance"]:
+            if not effects["fire_resistance"] and now - _last_applied["fire_resistance"] > _EFFECT_COOLDOWN:
                 payload = json.dumps({
                     "message": f"/effect give {BOT_USERNAME} minecraft:fire_resistance 999999 0 true"
                 }).encode("utf-8")
@@ -733,9 +741,10 @@ def _daemon_guardian_loop():
                     method="POST",
                 )
                 urllib.request.urlopen(req, timeout=3)
+                _last_applied["fire_resistance"] = now
                 print("[daemon_guardian] Applied fire_resistance", flush=True)
 
-            if not effects["water_breathing"]:
+            if not effects["water_breathing"] and now - _last_applied["water_breathing"] > _EFFECT_COOLDOWN:
                 payload = json.dumps({
                     "message": f"/effect give {BOT_USERNAME} minecraft:water_breathing 999999 0 true"
                 }).encode("utf-8")
@@ -746,6 +755,7 @@ def _daemon_guardian_loop():
                     method="POST",
                 )
                 urllib.request.urlopen(req, timeout=3)
+                _last_applied["water_breathing"] = now
                 print("[daemon_guardian] Applied water_breathing", flush=True)
 
         except Exception:
