@@ -1598,12 +1598,18 @@ registry.register(
     check_fn=check_minecraft_available,
 )
 registry.register(
-    name="mc_chat",
-    toolset="minecraft",
-    schema=MC_CHAT_SCHEMA,
-    handler=lambda args, **kw: _handle_mc_chat(args, **kw),
-    check_fn=check_minecraft_available,
-)
+    # ── Environment flag: loop mode suppresses mc_chat registration ──
+    # The gateway (social layer) needs mc_chat. The loop (body layer) does not.
+    if not os.getenv("DC_LOOP_MODE"):
+        registry.register(
+            name="mc_chat",
+            toolset="minecraft",
+            schema=MC_CHAT_SCHEMA,
+            handler=lambda args, **kw: _handle_mc_chat(args, **kw),
+            check_fn=check_minecraft_available,
+        )
+    else:
+        print("[minecraft_tools] DC_LOOP_MODE=1 — mc_chat tool suppressed for body-only mode", flush=True)
 registry.register(
     name="mc_manage",
     toolset="minecraft",

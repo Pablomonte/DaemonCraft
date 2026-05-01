@@ -24,6 +24,10 @@ HERMES_DIR = Path.home() / ".hermes" / "hermes-agent"
 if str(HERMES_DIR) not in sys.path:
     sys.path.insert(0, str(HERMES_DIR))
 
+# Body-only mode: suppress mc_chat tool registration in minecraft_tools.py
+# The loop must never speak to players; chat is the gateway's responsibility.
+os.environ["DC_LOOP_MODE"] = "1"
+
 from run_agent import AIAgent
 
 MC_API_URL = os.getenv("MC_API_URL", "http://localhost:3001")
