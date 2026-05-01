@@ -64,55 +64,65 @@ See the full fork workflow in the wiki: `~/wiki/projects/hermes-agent/notes/work
 
 ### Testing DaemonCraft Changes That Touch hermes-agent
 
-**DO NOT** modify the active install (`~/.hermes/hermes-agent`) directly for feature work. **DO NOT** point `hermes-gateway.service` at the workspace (`~/Projects/hermes-agent`). The service must always use the deploy.
+There are **two valid workflows** for testing. Choose the one that fits:
 
-**Correct temporary test workflow:**
+#### Option A: Merge to deploy (no service edit)
+Best when you want to keep the workspace on `main` and test from a clean deploy state.
 
-1. **Work in the workspace** on a feature branch:
-   ```bash
-   cd ~/Projects/hermes-agent
-   git checkout -b feat/dc-XXX-description  # or use existing feat/dc-105
-   # make changes, commit
-   ```
+```bash
+# 1. Merge feature branch into deploy
+cd ~/.hermes/hermes-agent
+git fetch local-project
+git merge local-project/feat/dc-XXX-description --no-edit
 
-2. **Merge to the deploy** for testing:
-   ```bash
-   cd ~/.hermes/hermes-agent
-   git fetch local-project
-   git merge local-project/feat/dc-XXX-description --no-edit
-   ```
-   (The deploy has a `local-project` remote pointing to `~/Projects/hermes-agent`.)
+# 2. Restart gateway
+systemctl --user restart hermes-gateway.service
 
-3. **Restart the gateway service**:
-   ```bash
-   systemctl --user daemon-reload
-   systemctl --user restart hermes-gateway.service
-   ```
+# 3. TEST IN MINECRAFT
 
-4. **Test in Minecraft / CLI.**
+# 4. Restore deploy to main when done
+git checkout main
+git reset --hard origin/main
+systemctl --user restart hermes-gateway.service
+```
 
-5. **When done testing, restore deploy to main**:
-   ```bash
-   cd ~/.hermes/hermes-agent
-   git checkout main
-   git reset --hard origin/main
-   systemctl --user restart hermes-gateway.service
-   ```
+#### Option B: Point service to workspace (no merge)
+Best for rapid iteration — edit code in the workspace, restart, see changes immediately. No commits or merges needed.
 
-6. **Eventually:** rebase the feature branch onto `nousmain`, merge into `main`, push `origin/main`, then `hermes update`.
+```bash
+# 1. Switch service to workspace
+cd ~/.config/systemd/user
+sed -i 's|/home/nicolas/.hermes/hermes-agent|/home/nicolas/Projects/hermes-agent|g' hermes-gateway.service
+systemctl --user daemon-reload
 
-### hermes-gateway.service MUST point to the deploy
+# 2. Checkout feature branch in workspace
+cd ~/Projects/hermes-agent
+git checkout feat/dc-XXX-description
 
-The systemd service file (`~/.config/systemd/user/hermes-gateway.service`) must use:
+# 3. Restart gateway
+systemctl --user restart hermes-gateway.service
+
+# 4. TEST IN MINECRAFT
+
+# 5. RESTORE PRODUCTION when done
+cd ~/Projects/hermes-agent && git checkout main
+cd ~/.config/systemd/user
+sed -i 's|/home/nicolas/Projects/hermes-agent|/home/nicolas/.hermes/hermes-agent|g' hermes-gateway.service
+systemctl --user daemon-reload
+systemctl --user restart hermes-gateway.service
+```
+
+**Golden rule:** Whichever option you used, always restore production state when done. The service must never "accidentally" point to the workspace.
+
+### hermes-gateway.service — Default is deploy, workspace for dev only
+
+The systemd service defaults to the deploy:
 - `WorkingDirectory=/home/nicolas/.hermes/hermes-agent`
 - `PYTHONPATH=/home/nicolas/.hermes/hermes-agent`
 
-If it points to `~/Projects/hermes-agent`, any checkout in the workspace (e.g., switching to a feature branch) immediately changes what the gateway runs — breaking CLI sessions, OAuth, or other features that live in `main` but not in the feature branch.
+This is the **safe default** — the gateway runs stable code, and the workspace stays clean on `main` for other CLI sessions.
 
-**This was accidentally changed on 2026-05-01 and has been reverted.** Always verify:
-```bash
-grep "WorkingDirectory\|PYTHONPATH" ~/.config/systemd/user/hermes-gateway.service
-```
+**For rapid development/testing**, temporarily pointing the service at the workspace is fine (Option B above). Just never leave it that way by accident.
 
 ### Config Changes (platform_toolsets)
 
