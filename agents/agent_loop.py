@@ -105,17 +105,18 @@ def fetch_recent_chat(count: int = 20) -> list[dict]:
         return []
 
 
-def _post_chat(text: str) -> None:
-    """Hand chat text to the bot server. Delegates formatting to chat_policy."""
+def _post_chat(text: str) -> list[str]:
+    """Hand chat text to the bot server. Delegates formatting to chat_policy.
+    
+    Returns any warnings that should be injected into conversation_history
+    by the caller (to avoid scope issues with nested functions).
+    """
     text = filter_noise(text)
     if text is None:
-        return
+        return []
     chat_text, warnings = enforce_say_format(text)
-    # Inject formatting hints for next turn (non-blocking)
-    for w in warnings:
-        conversation_history.append({"role": "system", "content": w})
     if not chat_text:
-        return
+        return warnings  # caller injects these
     payload = json.dumps({"message": chat_text}).encode("utf-8")
     req = urllib.request.Request(
         f"{MC_API_URL}/chat/send",
@@ -132,6 +133,7 @@ def _post_chat(text: str) -> None:
                 print(f"[loop] Chat: {sent} fragments sent, {dropped} dropped (cap)", flush=True)
     except Exception as e:
         print(f"[loop] /chat/send failed: {e}", flush=True)
+    return warnings
 
 
 
@@ -1115,7 +1117,9 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                             and not mc_chat_used
                         ):
                             # Enforce SAY: format — if the model forgot, nudge it for next turn
-                            _post_chat(chat_msg)
+                            warnings = _post_chat(chat_msg)
+                            for w in warnings:
+                                conversation_history.append({"role": "system", "content": w})
 
                     if response and not is_budget_error:
                         print(f"[loop] Response: {response[:200]}", flush=True)
