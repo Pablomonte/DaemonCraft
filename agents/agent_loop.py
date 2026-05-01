@@ -32,18 +32,11 @@ from run_agent import AIAgent
 
 MC_API_URL = os.getenv("MC_API_URL", "http://localhost:3001")
 BOT_USERNAME = os.getenv("MC_USERNAME", "Steve").lower()
-# Comma-separated list of bot usernames (e.g., "eko,pamplinas,steve")
-# Used to identify bot-to-bot messages and prevent cross-bot interruptions.
-KNOWN_BOTS = set(
-    u.strip().lower()
-    for u in os.getenv("MC_KNOWN_BOTS", BOT_USERNAME).split(",")
-    if u.strip()
-)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 # Module-level helpers (safe to call from threads)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════════════════════════════
 
 def log_agent_turn(turn_data: dict):
     """Send turn data to bot server for dashboard display."""
@@ -78,35 +71,6 @@ def send_heartbeat(next_turn_in: float | None = None, turn_in_progress: bool = F
             pass
     except Exception:
         pass
-
-
-def _post_chat(text: str) -> None:
-    """Hand the full text to the bot server. Server does chunking + delivery.
-
-    The final_response from the model IS the chat. Hermes already separates
-    tool_calls from content at the protocol level. No parsing, no prefixes.
-    """
-    if not text:
-        return
-    text = text.strip()
-    if not text:
-        return
-    payload = json.dumps({"message": text}).encode("utf-8")
-    req = urllib.request.Request(
-        f"{MC_API_URL}/chat/send",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            sent = data.get("fragments_sent", 0)
-            dropped = data.get("fragments_dropped", 0)
-            if dropped:
-                print(f"[loop] Chat: {sent} fragments sent, {dropped} dropped (cap)", flush=True)
-    except Exception as e:
-        print(f"[loop] /chat/send failed: {e}", flush=True)
 
 
 def _safe_trim_history(messages: list, max_msgs: int = 20) -> list:
@@ -272,9 +236,9 @@ next_turn_time = None
 countdown_lock = threading.Lock()
 cancel_event = threading.Event()
 
-# ── Standby mode ───────────────────────────────────────────────────────────────
+# ── Standby mode ───────────────────────────────────────────────────────────────────────────
 # When standby is enabled, the bot stays connected to Minecraft but skips
-# autonomous turns (heartbeat). It only responds to player chat messages.
+# autonomous turns (heartbeat). It only responds to system events (quest/blueprint).
 # Controlled via STANDBY_FILE (touched by daemoncraft.py pause/resume).
 STANDBY_FILE = os.getenv("STANDBY_FILE", "")
 
