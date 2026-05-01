@@ -2508,15 +2508,15 @@ async collect({ block, count = 1 }) {
 
   async chat_to({ player, message }) {
     const b = ensureBot();
-    // Alias for whisper — use native /msg for true server-side private message
-    b.chat(`/msg ${player} ${message}`);
+    // Alias for whisper — use native /tell for true server-side private message
+    b.chat(`/tell ${player} ${message}`);
     rememberSocialEvent({ actor: getMyName(), target: player, kind: 'sent', channel: 'whisper', message });
     return { result: `[→${player}]: ${message}` };
   },
 
   async whisper({ player, message }) {
     const b = ensureBot();
-    b.chat(`/msg ${player} ${message}`);
+    b.chat(`/tell ${player} ${message}`);
     rememberSocialEvent({ actor: getMyName(), target: player, kind: 'sent', channel: 'whisper', message });
     return { result: `[→${player}]: ${message}` };
   },
@@ -2976,9 +2976,9 @@ async collect({ block, count = 1 }) {
     const b = ensureBot();
     if (!teamConfig.team) throw new Error('Not assigned to a team. Use /action/set_team first.');
     
-    // Send to all teammates via /msg
+    // Send to all teammates via /tell
     for (const mate of teamConfig.teammates) {
-      b.chat(`/msg ${mate} [${teamConfig.team.toUpperCase()}] ${message}`);
+      b.chat(`/tell ${mate} [${teamConfig.team.toUpperCase()}] ${message}`);
       await sleep(100); // avoid spam throttle
     }
     teamConfig.teamChat.push({ time: Date.now(), from: config.mc.username, message });
@@ -3020,7 +3020,7 @@ async collect({ block, count = 1 }) {
     // Announce to team
     const msg = message || `Rally at ${teamConfig.rallyPoint.x},${teamConfig.rallyPoint.y},${teamConfig.rallyPoint.z}!`;
     for (const mate of teamConfig.teammates) {
-      b.chat(`/msg ${mate} [RALLY] ${msg}`);
+      b.chat(`/tell ${mate} [RALLY] ${msg}`);
       await sleep(100);
     }
     return { result: `Rally point set and announced to team: ${msg}` };
@@ -3032,7 +3032,7 @@ async collect({ block, count = 1 }) {
     const pos = posObj();
     const fullMsg = `[INTEL] ${message} (at ${pos.x},${pos.y},${pos.z})`;
     for (const mate of teamConfig.teammates) {
-      b.chat(`/msg ${mate} ${fullMsg}`);
+      b.chat(`/tell ${mate} ${fullMsg}`);
       await sleep(100);
     }
     return { result: `Report sent to team: ${fullMsg}` };
@@ -3624,7 +3624,7 @@ const httpServer = http.createServer(async (req, res) => {
           if (whisper) {
             b.chat(`/tell ${target} ${message}`);
           } else {
-            b.chat(`/msg ${target} ${message}`);
+            b.chat(`/tell ${target} ${message}`);
           }
           chatLog.push({ time: Date.now(), from: botName, message, self: true, whisper, to: target });
           if (chatLog.length > MAX_LOG) chatLog.shift();

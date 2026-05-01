@@ -1017,11 +1017,7 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 30):
                     print("[loop] Budget exhausted — tools executed but summary failed. Will retry next turn.", flush=True)
                     conversation_history = []
                 else:
-                    GATEWAY_HANDLES_CHAT = os.getenv("DISABLE_LOOP_CHAT_RESPONSE", "").lower() in ("1", "true", "yes")
-                    if GATEWAY_HANDLES_CHAT and is_chat_triggered:
-                        # Gateway adapter handles player chat — skip loop chat response
-                        print("[loop] Gateway handles chat — skipping loop chat response", flush=True)
-                    elif response and (is_chat_triggered or os.getenv("MC_ALWAYS_CHAT", "").lower() in ("1", "true", "yes")):
+                    if response and (is_chat_triggered or os.getenv("MC_ALWAYS_CHAT", "").lower() in ("1", "true", "yes")):
                         # If the agent used mc_chat this turn, it already spoke — don't duplicate.
                         # Otherwise, the final_response IS the chat output.
                         chat_msg = response.strip()
