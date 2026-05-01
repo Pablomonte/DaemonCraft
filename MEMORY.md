@@ -42,6 +42,94 @@ Available casts: `landfolk`, `civilization`, `companion`, `rolemaster`
 
 Service file: `/home/nicolas/.config/systemd/user/daemoncraft-cast.service`
 
+## Hermes Agent Integration — Development Workflow
+
+When DaemonCraft features require changes to `hermes-agent` (gateway adapter, toolsets, platform config), follow this workflow to avoid breaking the running gateway or your CLI sessions.
+
+### Three Locations of hermes-agent
+
+| Location | Purpose | What runs from here |
+|----------|---------|---------------------|
+| `~/.hermes/hermes-agent` | **Active install / deploy** | `hermes-gateway.service`, `hermes update` |
+| `~/Projects/hermes-agent` | **Clean rebase workspace** | Development, rebasing, PRs |
+| GitHub `nicoechaniz/hermes-agent` | **Public fork** | `origin` remote — convergence point |
+
+### The Fork (nousmain pattern)
+
+- `nousmain` — local-only branch, clean mirror of `upstream/main`. Never pushed.
+- `main` — integration branch on `origin`. Contains `upstream/main` + all our merged features. `hermes update` pulls this.
+- `feat/*`, `fix/*` — feature branches rebased onto `nousmain`, merged into `main`.
+
+See the full fork workflow in the wiki: `~/wiki/projects/hermes-agent/notes/workflow.md`
+
+### Testing DaemonCraft Changes That Touch hermes-agent
+
+**DO NOT** modify the active install (`~/.hermes/hermes-agent`) directly for feature work. **DO NOT** point `hermes-gateway.service` at the workspace (`~/Projects/hermes-agent`). The service must always use the deploy.
+
+**Correct temporary test workflow:**
+
+1. **Work in the workspace** on a feature branch:
+   ```bash
+   cd ~/Projects/hermes-agent
+   git checkout -b feat/dc-XXX-description  # or use existing feat/dc-105
+   # make changes, commit
+   ```
+
+2. **Merge to the deploy** for testing:
+   ```bash
+   cd ~/.hermes/hermes-agent
+   git fetch local-project
+   git merge local-project/feat/dc-XXX-description --no-edit
+   ```
+   (The deploy has a `local-project` remote pointing to `~/Projects/hermes-agent`.)
+
+3. **Restart the gateway service**:
+   ```bash
+   systemctl --user daemon-reload
+   systemctl --user restart hermes-gateway.service
+   ```
+
+4. **Test in Minecraft / CLI.**
+
+5. **When done testing, restore deploy to main**:
+   ```bash
+   cd ~/.hermes/hermes-agent
+   git checkout main
+   git reset --hard origin/main
+   systemctl --user restart hermes-gateway.service
+   ```
+
+6. **Eventually:** rebase the feature branch onto `nousmain`, merge into `main`, push `origin/main`, then `hermes update`.
+
+### hermes-gateway.service MUST point to the deploy
+
+The systemd service file (`~/.config/systemd/user/hermes-gateway.service`) must use:
+- `WorkingDirectory=/home/nicolas/.hermes/hermes-agent`
+- `PYTHONPATH=/home/nicolas/.hermes/hermes-agent`
+
+If it points to `~/Projects/hermes-agent`, any checkout in the workspace (e.g., switching to a feature branch) immediately changes what the gateway runs — breaking CLI sessions, OAuth, or other features that live in `main` but not in the feature branch.
+
+**This was accidentally changed on 2026-05-01 and has been reverted.** Always verify:
+```bash
+grep "WorkingDirectory\|PYTHONPATH" ~/.config/systemd/user/hermes-gateway.service
+```
+
+### Config Changes (platform_toolsets)
+
+Some DaemonCraft features require adding toolsets to `platform_toolsets` in `~/.hermes/config.yaml`. This is a config change, not a code change, and is safe to do directly:
+
+```yaml
+platform_toolsets:
+  daemoncraft:
+  - minecraft
+  - messaging
+  - memory
+  - vision
+  - tts
+```
+
+These changes are global (affect all platforms) but are backward-compatible.
+
 ## Agent Operations & Troubleshooting
 
 ### Starting / Stopping / Updating Agents
@@ -443,7 +531,7 @@ Backlog: DC-77 (error frequency tracker), DC-79 (blueprint conversion), DC-81 (b
 
 ### Epic: DC-105 — Unified Social Routing
 
-**Status: CODE-COMPLETE, pending end-to-end validation.**
+**Status: ACTIVE TESTING — Deploy temporarily has dc-105 merged for end-to-end validation.**
 
 | Task | Status | Notes |
 |------|--------|-------|
@@ -457,21 +545,30 @@ Backlog: DC-77 (error frequency tracker), DC-79 (blueprint conversion), DC-81 (b
 
 **Branches:** `feat/dc-105-unified-social-routing` in both `~/Projects/DaemonCraft` and `~/Projects/hermes-agent`.
 
-**Deploy status:** Deploy was temporarily modified during testing (toolset added, SyntaxError fixed). Workspace commits capture the fixes. Deploy should be restored to main + `hermes update` after merge.
+**Deploy status (2026-05-01):**
+- Deploy (`~/.hermes/hermes-agent`) has `feat/dc-105` temporarily merged for testing
+- `hermes-gateway.service` corrected to point to deploy (was accidentally pointing to workspace)
+- `~/.hermes/config.yaml` has `daemoncraft` in `platform_toolsets` with `minecraft`, `messaging`, `memory`, `vision`, `tts`
+- Workspace (`~/Projects/hermes-agent`) is clean on `main`
+- **When done testing:** restore deploy with `cd ~/.hermes/hermes-agent && git checkout main && git reset --hard origin/main && systemctl --user restart hermes-gateway.service`
 
-**Validation (2026-05-01):** ✅ **PASSED.** End-to-end test confirmed:
-- Gateway receives player chat via WebSocket
-- Gateway classifies `@mention` as urgent, interrupts loop via `/agent/interrupt`
-- Gateway AIAgent generates response using profile `pamplinas`
-- Gateway sends response to Minecraft chat via `/chat/send`
-- Agent_loop stays in body lane (heartbeat/quest/blueprint), does not respond to chat
-- Tools are available (mc_perceive, mc_plan, etc.) after fixing toolset + SyntaxError
+**Validation (2026-05-01):**
+- ✅ Gateway receives player chat via WebSocket
+- ✅ Gateway classifies `@mention` as urgent, interrupts loop via `/agent/interrupt`
+- ✅ Gateway AIAgent generates response using profile `pamplinas`
+- ✅ Gateway sends response to Minecraft chat via `/chat/send`
+- ✅ TTS works (voice plays through dashboard)
+- ✅ Agent_loop stays in body lane (heartbeat/quest/blueprint), does not respond to chat
+- ✅ Tools are available (mc_perceive, mc_plan, etc.) after fixing toolset + SyntaxError
+- ❌ **Action execution not yet validated** — bot appears to plan actions but physical execution (follow, move, mine) is not working correctly. Needs debug.
 
 **Bugs found during validation:**
 1. `toolset 'minecraft'` missing from `toolsets.py` — `enabled_toolsets=['minecraft']` resolved to `[]`
 2. SyntaxError in `minecraft_tools.py`: `registry.register(` wrapping an `if/else` block
 3. Gateway rejected all DaemonCraft users — needed `DAEMONCRAFT_ALLOW_ALL_USERS=true`
 4. `sed -i` on symlink broke it (created a regular file copy in deploy)
+5. `hermes-gateway.service` accidentally pointed to workspace instead of deploy
+6. `platform_toolsets` missing `daemoncraft` entry — gateway had no mc_* tools
 
 All bugs fixed and committed.
 
