@@ -233,12 +233,17 @@ def load_profile_config(profile_name: str) -> dict:
 
 
 def build_system_prompt(profile_dir: Path) -> str:
-    """Build system prompt from SOUL.md and other context files."""
+    """Build system prompt from BODY.md (loop embodiment) or SOUL.md (fallback)."""
     parts = []
 
-    soul = profile_dir / "SOUL.md"
-    if soul.exists():
-        parts.append(soul.read_text())
+    # Loop embodiment prompt takes precedence over social SOUL
+    body = profile_dir / "BODY.md"
+    if body.exists():
+        parts.append(body.read_text())
+    else:
+        soul = profile_dir / "SOUL.md"
+        if soul.exists():
+            parts.append(soul.read_text())
 
     for name in ("AGENTS.md", ".cursorrules"):
         f = profile_dir / name
