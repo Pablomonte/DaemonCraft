@@ -2,8 +2,47 @@
 """
 Chat Policy — Single source of truth for agent chat behavior.
 
-Pure functions. No side effects. No server dependencies.
-Testable offline without Minecraft running.
+This module contains pure functions that define how the agent formats,
+filters, and delivers chat messages. It is the ONLY place where these
+decisions are made. The bot server (server.js) trusts the agent and does
+NOT re-apply these rules.
+
+Design principles:
+  - Pure functions: no side effects, no server dependencies
+  - Testable offline: run `python chat_policy.py` for inline tests
+  - Advisory, not restrictive: hints guide the model, never block creativity
+  - Single source of truth: changing chat behavior requires editing only this file
+
+Functions:
+  filter_noise(text) -> str | None
+      Drop meaningless minimal responses ("." , "ok", "hm", short digits).
+      Returns None for silence, the cleaned text otherwise.
+
+  enforce_say_format(text) -> (chat_text: str, warnings: list[str])
+      Parse agent response into chat-ready text and system hints.
+      - Extracts lines starting with "SAY:" (prefix stripped)
+      - Truncates lines exceeding 180 characters
+      - Gently auto-prefixes short lines missing "SAY:"
+      - Separates commands (lines starting with "/")
+      Returns the chat text and any warnings to inject next turn.
+
+  detect_language(messages: list[dict]) -> "es" | None
+      Detect if player messages are in Spanish.
+      Conservative: only flags on strong indicators (¿, ¡, actual Spanish words).
+      Never flags English as Spanish (no single-letter markers).
+      Returns "es" or None (no hint injected for ambiguous/English text).
+
+Usage in agent_loop.py:
+    from hermescraft.chat_policy import filter_noise, enforce_say_format, detect_language
+
+    text = filter_noise(response)
+    if text is None:
+        return  # silence
+    chat_text, warnings = enforce_say_format(text)
+    for w in warnings:
+        conversation_history.append({"role": "system", "content": w})
+    if chat_text:
+        post_to_minecraft(chat_text)
 """
 
 from typing import List, Tuple, Optional
@@ -41,6 +80,13 @@ def enforce_say_format(text: str) -> Tuple[str, List[str]]:
     Returns:
         chat_text: lines ready for the server (SAY: prefix already stripped)
         warnings: list of system hints to inject next turn (empty if ok)
+
+    Behavior:
+      - Lines starting with "SAY:" are extracted and the prefix stripped.
+      - Lines starting with "/" are treated as commands, not chat.
+      - If no SAY: lines exist but short chat-like lines do, they are gently
+        auto-prefixed and a hint is generated for the next turn.
+      - Long non-SAY lines (>180) are truncated and a hint is generated.
     """
     if not text:
         return "", []
@@ -70,7 +116,7 @@ def enforce_say_format(text: str) -> Tuple[str, List[str]]:
         else:
             other_lines.append(line)
 
-    # If the model used SAY:, trust it (even if there are also commands)
+    # If the model already used SAY:, trust it (even if there are also commands)
     if say_lines:
         return "\n".join(say_lines), warnings
 
@@ -133,7 +179,7 @@ def detect_language(messages: List[dict]) -> Optional[str]:
     Returns "es" if confident, None otherwise (no hint injected).
 
     Conservative: only flags Spanish if there are strong indicators.
-    Never flags English as Spanish (no single-letter markers).
+    Never flags English as Spanish (no single-letter markers like "a" or "y").
     """
     if not messages:
         return None
