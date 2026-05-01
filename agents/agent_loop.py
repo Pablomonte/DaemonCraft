@@ -95,6 +95,16 @@ def send_heartbeat(next_turn_in: float | None = None, turn_in_progress: bool = F
         pass
 
 
+def fetch_recent_chat(count: int = 20) -> list[dict]:
+    """Fetch recent chat messages from the bot server."""
+    try:
+        with urllib.request.urlopen(f"{MC_API_URL}/chat?count={count}", timeout=3) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("data", {}).get("messages", [])
+    except Exception:
+        return []
+
+
 def _post_chat(text: str) -> None:
     """Hand chat text to the bot server. Delegates formatting to chat_policy."""
     text = filter_noise(text)
@@ -933,11 +943,34 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                     f"THEN create a new plan with mc_plan(action='set_goal', ...)."
                 )
             elif turn_count == 1:
-                prompt = initial_prompt
+                # Seed context with recent chat so the agent knows what happened
+                # while it was away (restarts, crashes, etc.)
+                recent = fetch_recent_chat(15)
+                # Filter out self-messages and guardian commands
+                recent = [m for m in recent if not m.get("self") and not m.get("message", "").startswith("/")]
+                if recent:
+                    chat_summary = "\n".join([
+                        f"- {m.get('from', 'Player')}: {m.get('message', '')}"
+                        for m in recent[-10:]
+                    ])
+                    prompt = (
+                        f"{initial_prompt}\n\n"
+                        f"--- Recent conversation (you may have missed this while restarting) ---\n"
+                        f"{chat_summary}\n"
+                        f"--- End of context ---\n\n"
+                        f"Continue naturally. Do NOT announce that you restarted. "
+                        f"If the conversation is ongoing, respond to the last relevant message. "
+                        f"If nothing needs your input, stay silent (no SAY: needed)."
+                    )
+                else:
+                    prompt = initial_prompt
             else:
                 prompt = (
                     "Continue your current activity. Check your status, surroundings, "
-                    "and any pending commands. Act as your character would."
+                    "and any pending commands. Act as your character would. "
+                    "IMPORTANT: If there are no players around, no active story beats, "
+                    "and nothing requires your attention, output NOTHING. "
+                    "Do NOT send random poetic lines to an empty chat. Silence is better than noise."
                 )
 
             if plan_context:
