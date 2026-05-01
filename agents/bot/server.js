@@ -766,8 +766,8 @@ async function sendToMcChat(text, { source = "auto", target = null } = {}) {
       dropped++;
       continue;
     }
+    const b = ensureBot();
     try {
-      const b = ensureBot();
       const payload = target ? `/tell ${target} ${frag}` : frag;
       b.chat(payload);
     } catch (e) {
