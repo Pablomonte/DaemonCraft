@@ -322,6 +322,7 @@ async function handleChat(username, message) {
 
   if (forMe) {
     // Message is for us — add to chatLog (visible in mc read_chat / mc status)
+    const playerEntry = bot?.players?.[username];
     chatLog.push({
       time: Date.now(),
       from: username,
@@ -329,6 +330,8 @@ async function handleChat(username, message) {
       private: !routing.isBroadcast,
       channel: routing.channel,
       targets: routing.targets.length > 0 ? routing.targets : undefined,
+      world: bot?.game?.dimension || 'unknown',
+      uuid: playerEntry?.uuid || null,
     });
     if (chatLog.length > MAX_LOG) chatLog.shift();
     broadcastDashboard('chat', chatLog.slice(-30));
@@ -476,7 +479,8 @@ async function createBotImpl() {
       bot.on('whisper', (username, message) => {
         if (username === bot.username) return;
         // Whispers are always for us — add directly to chatLog + commandQueue
-        chatLog.push({ time: Date.now(), from: username, message, whisper: true });
+        const playerEntry = bot?.players?.[username];
+        chatLog.push({ time: Date.now(), from: username, message, whisper: true, world: bot?.game?.dimension || 'unknown', uuid: playerEntry?.uuid || null });
         if (chatLog.length > MAX_LOG) chatLog.shift();
         log(`[Whisper] <${username}> ${message}`);
         commandQueue.push({
@@ -3526,6 +3530,17 @@ const httpServer = http.createServer(async (req, res) => {
         return respond(res, 200, { ok: true });
       }
 
+      // TTS play request — POST /tts/play
+      // Relays audio playback request to all dashboard WebSocket clients.
+      if (path === '/tts/play') {
+        const { audio_url, chat_id } = body || {};
+        if (!audio_url || typeof audio_url !== 'string') {
+          return respond(res, 400, { ok: false, error: "missing or invalid 'audio_url'" });
+        }
+        broadcastDashboard('tts_play', { audio_url, chat_id: chat_id || null });
+        return respond(res, 200, { ok: true, result: 'TTS relayed to dashboards.' });
+      }
+
       // Execute a command as the bot and return the server response
       if (path === '/command') {
         const command = body?.command;
@@ -3569,9 +3584,13 @@ const httpServer = http.createServer(async (req, res) => {
 
       // Send chat message from agent to Minecraft — POST /chat/send
       // Optional body.as: "Server" | player_name — sends as that identity instead of the bot.
+      // Optional body.target: "broadcast" | player_name — destination.
+      // Optional body.whisper: true — sends as /tell when target is a player.
       if (path === '/chat/send') {
         const message = body?.message;
         const sender = body?.as;
+        const target = body?.target;
+        const whisper = body?.whisper === true;
         if (!message || typeof message !== 'string') {
           return respond(res, 400, { ok: false, error: "missing or invalid 'message'" });
         }
@@ -3599,6 +3618,21 @@ const httpServer = http.createServer(async (req, res) => {
           return respond(res, 200, { ok: true, result: 'Message sent.', from: chatFrom });
         }
 
+        // Gateway-routed messaging: whisper or broadcast
+        if (target && typeof target === 'string' && target.toLowerCase() !== 'broadcast') {
+          // Directed message (whisper or direct chat)
+          if (whisper) {
+            b.chat(`/tell ${target} ${message}`);
+          } else {
+            b.chat(`/msg ${target} ${message}`);
+          }
+          chatLog.push({ time: Date.now(), from: botName, message, self: true, whisper, to: target });
+          if (chatLog.length > MAX_LOG) chatLog.shift();
+          broadcastDashboard('chat', chatLog.slice(-30));
+          return respond(res, 200, { ok: true, result: 'Message sent.', target, whisper });
+        }
+
+        // Default: broadcast / public chat
         const result = await sendToMcChat(message, { source: "http" });
         return respond(res, 200, result);
       }
