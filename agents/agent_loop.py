@@ -383,6 +383,18 @@ def _ws_on_message(ws, message):
                     print("[ws] Quest event arrived during turn — interrupting to respond now", flush=True)
                 except Exception:
                     pass
+        elif msg_type == "interrupt":
+            # Gateway-requested interrupt of the current LLM turn
+            reason = data.get("data", {}).get("reason", "gateway_request")
+            if turn_in_progress.is_set() and current_agent is not None:
+                try:
+                    cancel_event.set()
+                    current_agent._interrupt_requested = True
+                    print(f"[ws] Interrupt received ({reason}) — aborting current turn", flush=True)
+                except Exception:
+                    pass
+            else:
+                print(f"[ws] Interrupt received ({reason}) but no turn in progress", flush=True)
         elif msg_type == "status":
             pass
         else:

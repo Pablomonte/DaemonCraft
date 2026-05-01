@@ -3534,6 +3534,19 @@ const httpServer = http.createServer(async (req, res) => {
         return respond(res, 200, { ok: true, result: 'Task cancelled.', state: briefState() });
       }
 
+      // Interrupt agent loop LLM turn (not just physical actions)
+      if (path === '/agent/interrupt') {
+        const b = ensureBot();
+        b.pathfinder.setGoal(null);
+        try { b.stopDigging(); } catch {}
+        if (currentTask && currentTask.status === 'running') {
+          currentTask.status = 'cancelled';
+        }
+        // Broadcast to all WebSocket clients so agent_loop can abort its LLM turn
+        broadcastDashboard('interrupt', { reason: body?.reason || 'gateway_request', time: Date.now() });
+        return respond(res, 200, { ok: true, result: 'Agent interrupted.', state: briefState() });
+      }
+
       // Agent turn log — POST /agent/log
       if (path === '/agent/log') {
         const turn = body || {};
