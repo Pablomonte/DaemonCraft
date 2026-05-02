@@ -1637,6 +1637,21 @@ registry.register(
     handler=lambda args, **kw: _handle_mc_command(args, **kw),
     check_fn=check_minecraft_available,
 )
+MC_NOOP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "reason": {
+            "type": "string",
+            "description": "Optional reason for choosing no action.",
+        },
+    },
+}
+
+def _handle_mc_noop(args: Dict[str, Any], **kw) -> str:
+    """No-op tool for wake-up events where the agent chooses not to react."""
+    return "No action taken."
+
+
 registry.register(
     name="mc_story",
     toolset="minecraft",
@@ -1650,5 +1665,13 @@ registry.register(
     toolset="minecraft",
     schema=MC_REGISTRY_SCHEMA,
     handler=lambda args, **kw: _handle_mc_registry(args, **kw),
+    check_fn=check_minecraft_available,
+)
+
+registry.register(
+    name="mc_no_op",
+    toolset="minecraft",
+    schema=MC_NOOP_SCHEMA,
+    handler=lambda args, **kw: _handle_mc_noop(args, **kw),
     check_fn=check_minecraft_available,
 )
