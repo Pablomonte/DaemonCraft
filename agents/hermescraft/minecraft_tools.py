@@ -1053,7 +1053,7 @@ def _handle_mc_screenshot(args: dict, **kwargs) -> str:
             fname += ".png"
         payload["file_name"] = fname
 
-    resp = _api_post("/action/screenshot", payload, timeout=30)
+    resp = _api_post("/action/screenshot", payload, timeout=60)
     if not resp.get("ok", True):
         return f"Error: {resp.get('error', 'Screenshot failed')}"
 
@@ -1067,9 +1067,12 @@ def _handle_mc_screenshot(args: dict, **kwargs) -> str:
     # Auto-analyze the image so the model can "see" without calling vision_analyze manually
     try:
         result = _run_async(
-            vision_analyze_tool(
-                image_url=path,
-                user_prompt=_MINECRAFT_VISION_PROMPT,
+            asyncio.wait_for(
+                vision_analyze_tool(
+                    image_url=path,
+                    user_prompt=_MINECRAFT_VISION_PROMPT,
+                ),
+                timeout=25,
             )
         )
         # result is a JSON string: {"success": bool, "analysis": str}

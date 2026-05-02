@@ -9,6 +9,12 @@ Usage:
     python agent_loop.py --profile stevie --prompt "Begin."
 """
 
+# Apply Kimi CLI patches so OAuth requests include required X-Msh-* headers
+try:
+    import hermes_cli._kimi_coding_patches
+except Exception:
+    pass
+
 import argparse
 import json
 import os

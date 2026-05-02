@@ -1764,7 +1764,8 @@ async function topdownScreenshot({ width = 400, height = 400, radius = 40, file_
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, width, height);
 
-  const botPos = bot.entity.position;
+  // Snapshot position to avoid drift while we yield the event loop between chunks
+  const botPos = { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z };
   const botYaw = bot.entity.yaw || 0;
   const scale = Math.min(width, height) / (radius * 2 + 2);
   const cx = width / 2;
@@ -1776,6 +1777,8 @@ async function topdownScreenshot({ width = 400, height = 400, radius = 40, file_
   });
 
   for (let dx = -radius; dx <= radius; dx++) {
+    // Yield event loop every 8 rows — keeps bot responsive during rendering
+    if (dx % 8 === 0) await new Promise(r => setImmediate(r));
     for (let dz = -radius; dz <= radius; dz++) {
       const wx = Math.floor(botPos.x) + dx;
       const wz = Math.floor(botPos.z) + dz;
@@ -1798,6 +1801,7 @@ async function topdownScreenshot({ width = 400, height = 400, radius = 40, file_
   // === Entity overlay (players, mobs, animals) ===
   for (const entity of Object.values(bot.entities)) {
     if (entity === bot.entity) continue;
+    if (!entity || !entity.position) continue;
     const dist = entity.position.distanceTo(botPos);
     if (dist > radius) continue;
     const ep = w2c(entity.position.x, entity.position.z);
@@ -3316,7 +3320,7 @@ async collect({ block, count = 1 }) {
     // reliably. Use a fast node-canvas top-down block map instead.
     if (mode === 'topdown' || !viewerBrowser) {
       try {
-        const r = await topdownScreenshot({ width, height, radius: Math.floor(Math.min(width, height) / 10), file_name });
+        const r = await topdownScreenshot({ width, height, radius: Math.min(Math.floor(Math.min(width, height) / 10), 20), file_name });
         log(`[Screenshot] Topdown saved ${r.path}`);
         return r;
       } catch (err) {
@@ -4030,8 +4034,8 @@ const httpServer = http.createServer(async (req, res) => {
         return respond(res, 400, { ok: false, error: `Unknown action "${actionName}". Available: ${available}` });
       }
 
-      // Global 30s timeout so pathfinder-heavy actions cannot block the server
-      const ACTION_TIMEOUT_MS = 30000;
+      // Global 30s timeout (60s for screenshot to cover render + vision analysis)
+      const ACTION_TIMEOUT_MS = actionName === "screenshot" ? 60000 : 30000;
       const actionTimeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error(`Action "${actionName}" timed out after ${ACTION_TIMEOUT_MS}ms`)), ACTION_TIMEOUT_MS)
       );

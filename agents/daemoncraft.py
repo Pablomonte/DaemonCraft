@@ -372,23 +372,37 @@ def start_bot(
     write_pid(cast_name, agent_name, "bot", proc.pid)
     log(f"Bot {agent_name} started (PID {proc.pid})", cast_name)
 
-    # Wait for API ready
+    # Wait for API ready -- do NOT crash if MC server is down.
+    # The bot serves the dashboard even before connecting to MC,
+    # so we keep it up and let it retry MC connection on its own.
     import urllib.request
-    for i in range(30):
+    api_ready = False
+    for i in range(90):  # 90s to allow MC connection timeout + API init
         time.sleep(1)
         if proc.poll() is not None:
             out.close()
             tail = lf.read_text()[-500:]
-            error(f"Bot {agent_name} exited early:\n{tail}")
+            log(f"WARNING: Bot {agent_name} exited during startup, re-launching...", cast_name)
+            out = open(lf, "a")
+            proc = subprocess.Popen(
+                ["node", "server.js"],
+                cwd=str(BOT_DIR),
+                env=env,
+                stdout=out,
+                stderr=subprocess.STDOUT,
+            )
+            write_pid(cast_name, agent_name, "bot", proc.pid)
+            log(f"Bot {agent_name} re-launched (PID {proc.pid})", cast_name)
+            continue
         try:
-            urllib.request.urlopen(f"http://localhost:{port}/status", timeout=2)
+            urllib.request.urlopen(f"http://localhost:{port}/health", timeout=2)
             log(f"Bot {agent_name} API ready", cast_name)
+            api_ready = True
             break
         except Exception:
             pass
-    else:
-        out.close()
-        error(f"Bot {agent_name} failed to become ready within 30s")
+    if not api_ready:
+        log(f"WARNING: Bot {agent_name} API not ready after 90s. MC server may be down. Dashboard should still work.", cast_name)
 
     return proc.pid
 
