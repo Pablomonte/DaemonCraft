@@ -1024,11 +1024,14 @@ MC_PLAN_SCHEMA = {
 # ═══════════════════════════════════════════════════════════════════
 
 _MINECRAFT_VISION_PROMPT = (
-    "You are analyzing a top-down Minecraft block-map screenshot. "
-    "Describe in detail: terrain elevation, water/land ratio, trees, structures, "
-    "paths, caves, lava, notable landmarks, and approximate block coordinates. "
-    "Mention if the bot is near cliffs, water, or built structures. "
-    "Be specific about distances and directions (N/S/E/W)."
+    "Analizás un mapa top-down de Minecraft (bloque-por-pixel). "
+    "El punto rojo con línea es el bot (la línea muestra hacia dónde mira). "
+    "Los puntos verdes son jugadores, los rojos son mobs hostiles, los naranjas son animales. "
+    "Describí en 3-4 oraciones BREVES en español: "
+    "1) terreno (bioma, agua, árboles), "
+    "2) entidades peligrosas y su distancia/dirección aproximada, "
+    "3) recursos o estructuras notables, "
+    "4) recomendación táctica (¿peligro? ¿refugio? ¿explorar?)."
 )
 
 
@@ -1050,7 +1053,7 @@ def _handle_mc_screenshot(args: dict, **kwargs) -> str:
             fname += ".png"
         payload["file_name"] = fname
 
-    resp = _api_post("/action/screenshot", payload, timeout=300)
+    resp = _api_post("/action/screenshot", payload, timeout=30)
     if not resp.get("ok", True):
         return f"Error: {resp.get('error', 'Screenshot failed')}"
 

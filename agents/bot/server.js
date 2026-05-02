@@ -1795,6 +1795,26 @@ async function topdownScreenshot({ width = 400, height = 400, radius = 40, file_
     }
   }
 
+  // === Entity overlay (players, mobs, animals) ===
+  for (const entity of Object.values(bot.entities)) {
+    if (entity === bot.entity) continue;
+    const dist = entity.position.distanceTo(botPos);
+    if (dist > radius) continue;
+    const ep = w2c(entity.position.x, entity.position.z);
+    const isPlayer = entity.type === 'player';
+    const isHostile = ['hostile', 'mob'].includes(entity.type) || ['zombie', 'skeleton', 'creeper', 'spider', 'enderman', 'witch', 'phantom', 'drowned', 'pillager', 'vindicator', 'ravager', 'blaze', 'ghast', 'wither_skeleton', 'piglin_brute'].includes(entity.name);
+    ctx.fillStyle = isPlayer ? '#00ff00' : isHostile ? '#ff4444' : '#ffaa00';
+    ctx.beginPath();
+    ctx.arc(ep.x, ep.y, Math.max(2, scale * 0.7), 0, Math.PI * 2);
+    ctx.fill();
+    if (scale > 3) {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '8px sans-serif';
+      ctx.fillText(entity.name || entity.username || '?', ep.x + scale, ep.y - 2);
+    }
+  }
+
+  // === Bot dot (red with direction line) ===
   ctx.fillStyle = '#ff0000';
   ctx.beginPath();
   ctx.arc(cx, cy, Math.max(3, scale), 0, Math.PI * 2);
@@ -3290,7 +3310,7 @@ async collect({ block, count = 1 }) {
   // Screenshot — Prismarine-viewer + Puppeteer (Pi4-optimised)
   // ──────────────────────────────────────────────────────────────────
 
-  async screenshot({ width = 800, height = 600, file_name, mode = 'topdown' }) {
+  async screenshot({ width = 400, height = 400, file_name, mode = 'topdown' }) {
     ensureBot();
     // On Pi4/headless environments, prismarine-viewer + puppeteer + WebGL does not work
     // reliably. Use a fast node-canvas top-down block map instead.
