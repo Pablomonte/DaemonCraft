@@ -860,9 +860,25 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
     print(f"[loop] MC_API_URL: {mc_api_url}")
     print(f"[loop] Interval: {interval}s")
 
+    # Resolve kimi OAuth token explicitly so AIAgent gets explicit api_key+base_url,
+    # which triggers the X-Msh-* header injection path in run_agent.py.
+    api_key = None
+    if provider == "kimi-coding" and base_url:
+        try:
+            from hermes_cli.auth import resolve_kimi_coding_runtime_credentials
+            _creds = resolve_kimi_coding_runtime_credentials()
+            api_key = _creds.get("api_key", "") or None
+            if api_key:
+                print("[loop] Kimi OAuth token resolved")
+            else:
+                print("[loop] Warning: kimi OAuth returned empty api_key")
+        except Exception as _e:
+            print(f"[loop] Warning: could not resolve kimi credentials: {_e}")
+
     agent = AIAgent(
         model=model,
         provider=provider,
+        api_key=api_key,
         base_url=base_url,
         enabled_toolsets=toolsets,
         ephemeral_system_prompt=system_prompt,
