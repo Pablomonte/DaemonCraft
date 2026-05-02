@@ -45,6 +45,7 @@ DEFAULT_MC_PORT = 25565
 # Base profile and SOUL for all DaemonCraft agents
 BASE_PROFILE_NAME = "daemoncraft-base"
 BASE_SOUL_FILE = AGENTS_DIR / "SOUL-base.md"
+BODY_FILE = AGENTS_DIR / "prompts" / "BODY.md"
 
 
 def _get_all_known_bots() -> str:
@@ -257,6 +258,14 @@ def setup_agent_profile(
         soul_dst = profile_dir / "SOUL.md"
         soul_dst.write_text("\n".join(soul_parts))
         log(f"Wrote composite SOUL for {name}", cast_name)
+
+    # Write BODY.md (loop embodiment prompt) — always overwrite with canonical version
+    if BODY_FILE.exists():
+        body_dst = profile_dir / "BODY.md"
+        body_dst.write_text(BODY_FILE.read_text())
+        log(f"Wrote BODY.md for {name}", cast_name)
+    else:
+        log(f"Warning: BODY.md not found at {BODY_FILE}", cast_name)
 
     # Update config — MERGE with existing, don't overwrite
     import yaml

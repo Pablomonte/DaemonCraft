@@ -64,65 +64,65 @@ See the full fork workflow in the wiki: `~/wiki/projects/hermes-agent/notes/work
 
 ### Testing DaemonCraft Changes That Touch hermes-agent
 
-There are **two valid workflows** for testing. Choose the one that fits:
+**The deploy is a disposable sandbox.** Merge your hermes-agent feature branch directly into `~/.hermes/hermes-agent`, test end-to-end, then revert with `git reset --hard origin/main`. The workspace stays on `main` untouched.
 
-#### Option A: Merge to deploy (no service edit)
-Best when you want to keep the workspace on `main` and test from a clean deploy state.
+**Pre-flight check (conflict prevention):**
+
+Work branches are rebased onto `nousmain` (clean upstream), not onto `main` (which has our merged features). Before touching the deploy, verify that the branch merges cleanly into `main`:
 
 ```bash
-# 1. Merge feature branch into deploy
-cd ~/.hermes/hermes-agent
-git fetch local-project
-git merge local-project/feat/dc-XXX-description --no-edit
-
-# 2. Restart gateway
-systemctl --user restart hermes-gateway.service
-
-# 3. TEST IN MINECRAFT
-
-# 4. Restore deploy to main when done
+cd ~/Projects/hermes-agent
 git checkout main
+git merge feat/<project>-<id>-description --no-edit --no-commit
+# If conflicts appear, abort and fix the branch first:
+git merge --abort
+# If clean, abort and proceed:
+git merge --abort
+```
+
+**Deploy sandbox:**
+
+```bash
+# 1. Ensure deploy is clean
+cd ~/.hermes/hermes-agent
+git status                    # should be clean
+git log --oneline -1          # should be origin/main
+
+# 2. Merge the branch to test (local workspace branch)
+# If the branch only exists in the workspace, the remote 'local-project'
+# already points to ~/Projects/hermes-agent (one-time setup)
+git fetch local-project feat/<project>-<id>-description
+git merge --no-edit local-project/feat/<project>-<id>-description
+
+# 3. Restart whatever you are testing
+systemctl --user restart hermes-gateway.service
+# Or open a new Hermes CLI session
+
+# 4. TEST
+
+# 5. REVERT — deploy back to clean main
 git reset --hard origin/main
 systemctl --user restart hermes-gateway.service
 ```
 
-#### Option B: Point service to workspace (no merge)
-Best for rapid iteration — edit code in the workspace, restart, see changes immediately. No commits or merges needed.
+**Why this works:**
+- `~/.hermes/hermes-agent` is a separate git clone from the workspace.
+- `git reset --hard origin/main` instantly discards the test merge — no traces left.
+- The editable install loads from the deploy, so the running code changes immediately.
+- Your CLI sessions (and this agent) remain safe because the workspace never leaves `main`.
 
-```bash
-# 1. Switch service to workspace
-cd ~/.config/systemd/user
-sed -i 's|/home/nicolas/.hermes/hermes-agent|/home/nicolas/Projects/hermes-agent|g' hermes-gateway.service
-systemctl --user daemon-reload
+**Safety rules:**
+- Never push from the deploy.
+- Never leave the deploy with a test merge — always revert before `hermes update`.
+- If `hermes update` complains about local changes, you forgot to revert. Run `git reset --hard origin/main`.
 
-# 2. Checkout feature branch in workspace
-cd ~/Projects/hermes-agent
-git checkout feat/dc-XXX-description
+### hermes-gateway.service — Always points to deploy
 
-# 3. Restart gateway
-systemctl --user restart hermes-gateway.service
-
-# 4. TEST IN MINECRAFT
-
-# 5. RESTORE PRODUCTION when done
-cd ~/Projects/hermes-agent && git checkout main
-cd ~/.config/systemd/user
-sed -i 's|/home/nicolas/Projects/hermes-agent|/home/nicolas/.hermes/hermes-agent|g' hermes-gateway.service
-systemctl --user daemon-reload
-systemctl --user restart hermes-gateway.service
-```
-
-**Golden rule:** Whichever option you used, always restore production state when done. The service must never "accidentally" point to the workspace.
-
-### hermes-gateway.service — Default is deploy, workspace for dev only
-
-The systemd service defaults to the deploy:
+The systemd service hardcodes the deploy path:
 - `WorkingDirectory=/home/nicolas/.hermes/hermes-agent`
 - `PYTHONPATH=/home/nicolas/.hermes/hermes-agent`
 
-This is the **safe default** — the gateway runs stable code, and the workspace stays clean on `main` for other CLI sessions.
-
-**For rapid development/testing**, temporarily pointing the service at the workspace is fine (Option B above). Just never leave it that way by accident.
+This is the **only safe default**. The service must never point to the workspace — that path is what caused new Hermes sessions to break earlier (workspace was on a branch without `feat/kimi-oauth-clean`).
 
 ### Config Changes (platform_toolsets)
 
@@ -498,6 +498,14 @@ Key phases:
 8. ✓ Deploy Landfolk mode on live server
 
 ## Completed This Session
+
+## DaemonCraft Architectural Principles
+
+**Gateway owns reactive/social, agent_loop owns proactive tick:**
+The Hermes gateway should own ALL reactive/social responsibilities (chat, TTS, event narration, plan mutations from player input). The agent_loop should be reduced to its unique purpose: the proactive tick loop (heartbeat, sensor polling, quest trigger evaluation, physical tool execution) that Hermes lacks natively. This is a durable design preference for all future DaemonCraft work.
+
+**Provider changes require explicit user confirmation:**
+NEVER change LLM provider or model configurations without explicit user confirmation. Providers are paid API services. The user explicitly pays for them and has cost, privacy, and availability preferences that the agent does not have visibility into. The agent has ZERO authority to choose, switch, or default to any provider on the user's behalf. Always ask before touching any provider setting.
 
 - **Screenshot tool**: `mc_screenshot` with ray-traced rendering via `mine-photo`
 - **SOUL-landfolk.md**: Migrated from archive with modern tool syntax

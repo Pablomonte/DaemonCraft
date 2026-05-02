@@ -3264,6 +3264,11 @@ const httpServer = http.createServer(async (req, res) => {
         return respond(res, 200, { ok: true, data: getFullState() });
       }
 
+      // Aliases for /bot/* consistency
+      if (path === '/bot/status') {
+        return respond(res, 200, { ok: true, data: getFullState() });
+      }
+
       if (path === '/bot/effects') {
         const b = ensureBot();
         const effects = {};
@@ -3293,7 +3298,16 @@ const httpServer = http.createServer(async (req, res) => {
         return respond(res, 200, { ok: true, data: getInventory() });
       }
 
+      if (path === '/bot/inventory') {
+        return respond(res, 200, { ok: true, data: getInventory() });
+      }
+
       if (path === '/nearby') {
+        const radius = parseInt(url.searchParams.get('radius') || '32');
+        return respond(res, 200, { ok: true, data: getNearby(radius) });
+      }
+
+      if (path === '/bot/nearby') {
         const radius = parseInt(url.searchParams.get('radius') || '32');
         return respond(res, 200, { ok: true, data: getNearby(radius) });
       }
@@ -3606,6 +3620,25 @@ const httpServer = http.createServer(async (req, res) => {
           turnInProgress: body.turnInProgress !== undefined ? body.turnInProgress : agentHeartbeat.turnInProgress,
         };
         broadcastDashboard('heartbeat', agentHeartbeat);
+        return respond(res, 200, { ok: true });
+      }
+
+      // Heartbeat context — POST /heartbeat/context
+      // Receives world-state/perception snapshot from agent_loop and broadcasts
+      // it as a WebSocket heartbeat_context event to all connected clients
+      // (gateway adapter + dashboard).
+      if (path === '/heartbeat/context') {
+        const ctx = body || {};
+        const payload = {
+          timestamp: Date.now(),
+          bot_username: botUsername,
+          status: ctx.status || null,
+          nearby: ctx.nearby || null,
+          inventory: ctx.inventory || null,
+          plan: ctx.plan || null,
+          events: ctx.events || [],
+        };
+        broadcastDashboard('heartbeat_context', payload);
         return respond(res, 200, { ok: true });
       }
 

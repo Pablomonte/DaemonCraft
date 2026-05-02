@@ -1,0 +1,20 @@
+{
+  "goal": "Gather survival supplies and establish a base near the village",
+  "tasks": [
+    {
+      "description": "Collect dropped items from the ground",
+      "status": "in_progress"
+    },
+    {
+      "description": "Gather wood and basic materials from nearby structures",
+      "status": "pending"
+    },
+    {
+      "description": "Establish a safe shelter or storage area",
+      "status": "pending"
+    }
+  ],
+  "epoch": 8,
+  "created_at": "2026-05-01T13:59:54.258Z",
+  "updated_at": "2026-05-01T13:59:54.258Z"
+}

@@ -20,9 +20,9 @@ agents:
   - name: Pamplinas
     template: rolemaster/pamplinas
     port: 3002
-    model: MiniMax-M2.7
-    provider: minimax
-    base_url: https://api.minimax.io/anthropic
+    model: kimi-k2.6
+    provider: kimi-coding
+    base_url: https://api.kimi.com/coding/v1
     extra_toolsets:
       - vision
     gamemode: creative
