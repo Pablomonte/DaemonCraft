@@ -180,6 +180,7 @@ def ensure_base_profile() -> Path:
         "platform_toolsets": {"cli": ["minecraft", "clarify", "messaging"]},
         "agent": {
             "max_turns": 6,
+            "turn_timeout_seconds": 45,
             "gateway_timeout": 1800,
             "restart_drain_timeout": 60,
             "api_max_retries": 3,
