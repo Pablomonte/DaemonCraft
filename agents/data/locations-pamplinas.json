@@ -1,0 +1,21 @@
+{
+  "spawn": {
+    "x": 282.3,
+    "y": 60,
+    "z": 185.5,
+    "saved": "2026-05-01T10:12:43.911Z"
+  },
+  "base_safe_perimeter": {
+    "x": 288,
+    "y": 64,
+    "z": 179,
+    "note": "Safe perimeter marked after shulker sweep - area visually clear",
+    "saved": "2026-05-01T12:13:32.320Z"
+  },
+  "death_1": {
+    "x": 300.3,
+    "y": 64,
+    "z": 170.5,
+    "saved": "2026-05-01T13:53:29.846Z"
+  }
+}
