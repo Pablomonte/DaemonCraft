@@ -28,7 +28,8 @@ services:
       # keeping kid-friendly damage scaling. Per-cast overrides via in-game
       # /difficulty are still allowed (Pamplinas can switch to peaceful for
       # specific scenes via mc_command).
-      DIFFICULTY: "easy"
+      # TEMP: peaceful during testing so mobs don't interrupt dev work.
+      DIFFICULTY: "peaceful"
       CREATE_CONSOLE_IN_PIPE: "true"
       ALLOW_FLIGHT: "true"
       ENABLE_COMMAND_BLOCK: "true"
