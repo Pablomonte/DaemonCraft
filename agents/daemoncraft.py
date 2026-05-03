@@ -368,19 +368,50 @@ def start_bot(
     mc_host: str = DEFAULT_MC_HOST,
     mc_port: int = DEFAULT_MC_PORT,
     workspace_dir: str | None = None,
+    bot_config: dict | None = None,
 ) -> int:
     """Start the Mineflayer bot server. Returns PID."""
     lf = log_file(cast_name, agent_name, "bot")
     out = open(lf, "a")
 
+    # Build unified config JSON — single source of truth for the bot server
+    cfg = {
+        "minecraft": {
+            "host": mc_host,
+            "port": mc_port,
+            "username": agent_name,
+            "auth": "offline",
+        },
+        "server": {
+            "api_port": port,
+        },
+        "pathfinder": {
+            "allow_sprinting": False,
+            "can_dig": True,
+            "allow_parkour": True,
+        },
+        "chat": {
+            "fragment_max_chars": 240,
+            "max_fragments": 3,
+            "fragment_delay_ms": 300,
+        },
+        "workspace_dir": workspace_dir,
+        "known_bots": _get_all_known_bots(),
+    }
+    # Overlay cast-specific bot_config if provided
+    if bot_config:
+        for key, value in bot_config.items():
+            if isinstance(value, dict) and key in cfg and isinstance(cfg[key], dict):
+                cfg[key].update(value)
+            else:
+                cfg[key] = value
+
+    config_path = BOT_DIR / f"config-{agent_name.lower()}.json"
+    config_path.write_text(json.dumps(cfg, indent=2))
+
     env = {
         **os.environ,
-        "MC_HOST": mc_host,
-        "MC_PORT": str(mc_port),
-        "MC_USERNAME": agent_name,
-        "MC_AUTH": "offline",
-        "API_PORT": str(port),
-        "MC_KNOWN_BOTS": _get_all_known_bots(),
+        "MC_KNOWN_BOTS": cfg["known_bots"],
     }
     if workspace_dir:
         env["WORKSPACE_DIR"] = workspace_dir
@@ -388,7 +419,7 @@ def start_bot(
 
     log(f"Starting bot {agent_name} on port {port}...", cast_name)
     proc = subprocess.Popen(
-        ["node", "server.js"],
+        ["node", "server.js", "--config", str(config_path)],
         cwd=str(BOT_DIR),
         env=env,
         stdout=out,
@@ -535,7 +566,7 @@ def cmd_start(cast_name: str, cast: dict, mc_host: str, mc_port: int):
         workspace_dir = str(profile_dir / "workspace")
 
         # 2. Start bot
-        start_bot(cast_name, name, port, mc_host, mc_port, workspace_dir)
+        start_bot(cast_name, name, port, mc_host, mc_port, workspace_dir, agent.get("bot_config"))
 
         # 2b. Set gamemode if specified in cast config
         gamemode = agent.get("gamemode")
@@ -760,7 +791,7 @@ def cmd_daemon(cast_name: str, cast: dict, mc_host: str, mc_port: int):
                 try:
                     profile_dir = setup_agent_profile(cast_name, agent, soul_file)
                     workspace_dir = str(profile_dir / "workspace")
-                    start_bot(cast_name, name, port, mc_host, mc_port, workspace_dir)
+                    start_bot(cast_name, name, port, mc_host, mc_port, workspace_dir, agent.get("bot_config"))
                 except SystemExit:
                     pass
 
