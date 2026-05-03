@@ -299,7 +299,7 @@ The active Hermes install at `~/.hermes/hermes-agent` is **NEVER** to be directl
 
 **Common pitfall:** Running `ls server/plugins/` shows only `denizen`. The JARs are in `server/data/plugins/`.
 
-### Plugin List (confirmed loaded)
+### Plugin List (confirmed loaded — 15 total, post-PR merge)
 - `multiverse-core.jar` (4.3.14) — world management
 - `worldedit-bukkit-7.4.2.jar` — WorldEdit
 - `citizens2.jar` + `Citizens/` — NPC framework
@@ -308,6 +308,14 @@ The active Hermes install at `~/.hermes/hermes-agent` is **NEVER** to be directl
 - `floodgate-spigot.jar` + `floodgate/` — auth bridge
 - `LibsDisguises.jar` + `LibsDisguises/` — entity disguises
 - `packetevents-spigot-2.12.1.jar` — packet API
+- `ChatFilter.jar` + `ChatFilter/` — chat moderation
+- `CoreProtect.jar` + `CoreProtect/` — block logging / rollback
+- `DecentHolograms.jar` + `DecentHolograms/` — floating text / holograms
+- `LuckPerms.jar` + `LuckPerms/` — permissions
+- `Plan.jar` + `Plan/` — server analytics / metrics web UI
+- `SkinsRestorer.jar` + `SkinsRestorer/` — custom skins
+- `TAB.jar` + `TAB/` — tab list / scoreboard / nametags
+- *(PlaceholderAPI is also installed as a dependency for TAB/SkinsRestorer)*
 
 ## Cast.conf Persistence After Reboot
 
@@ -534,6 +542,18 @@ Key phases:
 7. ✓ Integration test: spawn Landfolk cast
 8. ✓ Deploy Landfolk mode on live server
 
+## Completed This Session (2026-05-03)
+
+- **PR #2 (Geyser/Bedrock)**: Merged. Geyser-Spigot plugin + Geyser config + `allow-non-mojang-profiles` for offline-mode crossplay.
+- **PR #3 (Server Setup)**: Merged. 8 new plugins: ChatFilter, CoreProtect, DecentHolograms, LuckPerms, Plan, SkinsRestorer, TAB, PlaceholderAPI. Docker compose reorganized with `plugins` profile.
+- **PR #4 (DC-131 — Safety)**: Merged. ChatFilter config (no curse words), `ENFORCE_WHITELIST: "false"` (disabled per user request for local testing). Conflicts resolved in docker-compose.yml.
+- **PR #5 (DC-132 — Observability)**: Merged. Plan plugin + agent metrics JSONL logging. Conflicts resolved in docker-compose.yml.
+- **PR #6 (Client Packs)**: Merged. `docs/` no longer ignored; client packs documentation preserved. Conflicts resolved in `.gitignore`.
+- **Post-merge fixes**: Removed duplicate `geyser-spigot.jar` from volume; fixed `server/geyser/cache/` permissions (chown 1000:1000); set `DIFFICULTY: peaceful` in docker-compose.yml.
+- **Server recreation**: Container recreated with `--force-recreate`. All 15 plugins confirmed loaded and healthy.
+- **kanban.db corruption**: Gateway failed with "file is not a database". Root cause: corrupted SQLite header. Fixed by backing up and recreating `kanban.db`, then restarting `hermes-gateway.service`.
+- **Steve + NicoElViejoGamer**: Both online on live server after merge.
+
 ## Completed This Session (2026-05-02)
 
 - **DC-112 Single-LLM Architecture**: Implemented and tested. Gateway owns all cognition; agent_loop is heartbeat injector only.
@@ -596,24 +616,30 @@ Done: DC-1 through DC-8, DC-10 through DC-28, DC-68 through DC-76, DC-95 through
 Cancelled: DC-78 (Multiverse Pipeline), DC-80 (Lobby Matrix), DC-82 (Showroom), DC-83 (Relocatable blueprints) — discarded in favor of in-world design (2026-04-28)  
 Backlog: DC-77 (error frequency tracker), DC-79 (blueprint conversion), DC-81 (blueprint compiler), DC-84 (regeneration), DC-85 through DC-91 (in-world blueprint engine), DC-111 (spike: Hermes /voice mode), DC-123 (dashboard/TTS regression after DC-112), DC-124 through DC-132 (Server Setup Overhaul epic — see plans/DC-124.md)
 
-### Epic: DC-124 — Server Setup Overhaul
+### Epic: DC-124 / DC-126 — Server Setup Overhaul
 
-**Status: in_planning (2026-05-03)** — branch `overhaul/server-setup`, 5-PR strategy.
-Source: Claude Opus 4.7 architectural review, archived in vault at `projects/DaemonCraft/overhaul-plan.md`.
-Blocks on: DC-123.
+**Status: IN PROGRESS (2026-05-03).**
 
-| Task | Phase | Notes |
-|------|-------|-------|
-| DC-125 | 0 — stabilize | image SHA pin, rolemaster.yaml model fix, plugin version inventory |
-| DC-126 | 1a — hardening | Docker limits, mc-backup sidecar, CoreProtect, LuckPerms |
-| DC-127 | 1b — server visual | SkinsRestorer + DecentHolograms + Better Leaves + Clean Glass + TAB |
-| DC-128 | 1c — Java client | `daemoncraft.mrpack` (Modrinth App, shaders opt-in) |
-| DC-129 | 1d — Bedrock client | `daemoncraft.mcpack` via Geyser/packs/ |
-| DC-130 | 2 — docs | SOUL-rolemaster stage-tools cheatsheet |
-| DC-131 | safety | whitelist + chat moderation |
-| DC-132 | observability | Plan plugin + agent metrics JSONL |
+The original DC-124 was "Per-profile fairPlayMode" (backlog). The Server Setup Overhaul epic is now tracked as **DC-126** in Lattice ("Epic: Server Setup Overhaul -- Visual & Infra Upgrade", backlog).
 
-Deferred per plan: multi-server mesh, Velocity proxy, Terraform, pre-built worlds.
+**What was merged today (PRs #2–#6):**
+- PR #2: Geyser/Bedrock crossplay support
+- PR #3: Plugin infrastructure (ChatFilter, CoreProtect, DecentHolograms, LuckPerms, Plan, SkinsRestorer, TAB, PlaceholderAPI)
+- PR #4: Safety/whitelist (disabled for local testing)
+- PR #5: Observability (Plan plugin + metrics JSONL)
+- PR #6: Client packs documentation
+
+**Post-merge fix — WorldEdit wand:** Default wand item is `wooden_axe`, which intercepts left-clicks and shows "First position set to..." instead of breaking blocks. Changed to `blaze_rod` in `server/data/plugins/WorldEdit/config.yml`. This change is live in the container volume but NOT in git (server/data/ is .gitignored). Needs persistence mechanism.
+
+**Remaining work (not yet in Lattice):**
+- Image SHA pin + plugin version inventory
+- SkinsRestorer + DecentHolograms visual configuration
+- `daemoncraft.mrpack` Java client pack
+- `daemoncraft.mcpack` Bedrock client pack
+- SOUL-rolemaster stage-tools cheatsheet
+- Persist plugin configs (WorldEdit wand, etc.) across container recreates
+
+**Deferred per original plan:** multi-server mesh, Velocity proxy, Terraform, pre-built worlds.
 
 ### Epic: DC-105 — Unified Social Routing
 
@@ -684,17 +710,18 @@ Dashboard panels BOT MIND, PLAN & GOALS, BACKGROUND TASK are empty because agent
 
 **Replaced by:** DC-85 through DC-91 (in-world blueprint engine).
 
-## Current State
+## Current State (2026-05-03)
 
-**Phase 1 is complete.** All Hermescraft primitives have been migrated and improved.
-**DC-105 (Unified Social Routing) is DONE** — merged to main (2026-05-02).
-**DC-112 (Single-LLM Architecture) is DONE** — gateway owns all cognition, loop is heartbeat injector. Merged to main via `feat/dc-112-daemoncraft-gateway` (2026-05-02).
-**DC-123 (Dashboard/TTS regression) is BACKLOG** — dashboard panels empty after DC-112, TTS relay broken.
-Companion and Landfolk modes are **legacy test modes** and will be deprecated.
+**All Fede654 PRs merged (#2–#6).** Server recreated with 15 plugins. Difficulty: peaceful. Whitelist: disabled (for local testing). Container healthy. Geyser/Bedrock crossplay active.
+
+**DC-105 (Unified Social Routing)**: DONE — merged to main (2026-05-02).
+**DC-112 (Single-LLM Architecture)**: DONE — gateway owns all cognition, loop is heartbeat injector. Merged to main via `feat/dc-112-daemoncraft-gateway` (2026-05-02).
+**DC-124 (Server Setup Overhaul)**: IN PROGRESS — PRs #3, #4, #5, #6 merged. Remaining: DC-125 (stabilize), DC-127 (visual), DC-128 (Java client pack), DC-129 (Bedrock client pack), DC-130 (docs).
+**DC-123 (Dashboard/TTS regression)**: BACKLOG — dashboard panels empty after DC-112, TTS relay broken.
 
 **Agent model:** MiniMax-M2.7 (via minimax provider, anthropic_messages api_mode for prompt caching).
 
-**Active development (2026-05-03):** Debugging session with ChatGPT identified that Steve's mc_* tools fail because they resolve the bot API URL from a stale process-global `MC_API_URL=3002` (from `hermes-gateway.service` Environment=) instead of the active cast's port (3001). Session routing, profile selection, and model/provider are all correct. The tools ARE present in the LLM session. The bug is endpoint resolution. No code changes made yet — architectural path needs discussion.
+**Players online:** Steve (agent), NicoElViejoGamer (human).
 
 **Sandbox mode:** ENDED (2026-05-02). Deploy will be updated via `hermes update` instead of manual file copying.
 
@@ -702,11 +729,8 @@ Companion and Landfolk modes are **legacy test modes** and will be deprecated.
 
 ## Known Issues / Next Steps
 
-- **Endpoint resolution bug (ACTIVE — 2026-05-03):** Steve's mc_* tools hit stale port 3002 because `minecraft_tools.py` reads `MC_API_URL` from a process-global env var set in `hermes-gateway.service`. The active cast runs on port 3001. There are three competing truths for bot endpoint:
-  1. `~/.config/daemoncraft/cast.conf` + profile `~/.hermes/profiles/steve/.env` (port 3001 — correct for current cast)
-  2. `~/.hermes/config.yaml` `platforms.daemoncraft.extra.bot_api_url` (port 3001 — correct but not read by tools)
-  3. `hermes-gateway.service` `Environment=MC_API_URL=3002` (port 3002 — stale, but this is what tools actually use)
-  `minecraft_tools.py` is untracked in both repos (ad-hoc drop-in). `check_minecraft_available()` returns True even on connection failure. Architectural fix needed: derive bot URL per DaemonCraft session, not from global env var.
+- **Endpoint resolution bug (ACTIVE — 2026-05-03):** Steve's mc_* tools hit stale port 3002 because `minecraft_tools.py` reads `MC_API_URL` from a process-global env var set in `hermes-gateway.service`. The active cast runs on port 3001. Architectural fix needed: derive bot URL per DaemonCraft session, not from global env var.
+- **DC-124 remaining tasks**: DC-125 (image SHA pin, rolemaster.yaml model fix, plugin version inventory), DC-127 (SkinsRestorer + DecentHolograms visual config), DC-128 (`daemoncraft.mrpack` Java client pack), DC-129 (`daemoncraft.mcpack` Bedrock client pack), DC-130 (SOUL-rolemaster stage-tools cheatsheet).
 - **Quest phase engine**: Implemented. Phases have triggers, objectives, and `timeout_minutes`. `record_activity` resets timer. `check_timeout` auto-abandons stale quests. Players can retake or restart.
 - **Scoreboard sensor architecture**: Consolidated 3-command API. `setup_sensors` creates scoreboards + registers metadata. `poll_sensors` batch-checks all sensors (runs poll_command for dummies, reads native scores for real criteria, auto-resets fired sensors). `cleanup_sensors` removes all. Bot server.js has native `GET /scoreboard?objective=X&player=Y` endpoint via Mineflayer API. `check_score` uses this endpoint instead of parsing chat.
 - **Sensor persistence**: `active_sensors` tracked in `story.json` as `{name, criterion, poll_command}`. `setup_sensors` is idempotent — safe to call on every startup. State survives server/agent restarts.
