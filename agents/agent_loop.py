@@ -942,6 +942,16 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                 send_heartbeat(next_turn_in=interval, turn_in_progress=False)
                 continue
 
+# Pause check — dashboard can pause agent without restarting service
+            try:
+                with urllib.request.urlopen(f"{MC_API_URL}/agent/paused", timeout=2) as _pr:
+                    if json.loads(_pr.read().decode()).get("paused"):
+                        print("[loop] Paused by dashboard — skipping turn", flush=True)
+                        send_heartbeat(next_turn_in=interval, turn_in_progress=False)
+                        continue
+            except Exception:
+                pass
+
             plan = fetch_plan()
             plan_context = format_plan(plan)
 
