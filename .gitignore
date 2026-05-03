@@ -70,3 +70,6 @@ EPIC-*.md
 # manually tracked copy if someone adds it directly)
 server/plugins/luckperms/*.db
 server/plugins/luckperms/luckperms-h2*
+
+# Built client pack artifacts
+dist/
