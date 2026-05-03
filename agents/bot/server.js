@@ -527,6 +527,27 @@ async function createBotImpl() {
         });
       }, 2000);
 
+      // Teleport detection — cancel navigation when forcibly moved by server
+      let lastPos = null;
+      bot.on('move', () => {
+        if (!bot || !bot.entity || !bot.entity.position) return;
+        const pos = bot.entity.position;
+        if (!lastPos) { lastPos = pos.clone(); return; }
+        const dist = pos.distanceTo(lastPos);
+        if (dist > 5) {
+          // Likely teleported — cancel pathfinder and current task
+          try { bot.pathfinder.setGoal(null); } catch {}
+          try { bot.stopDigging(); } catch {}
+          if (currentTask && currentTask.status === 'running') {
+            currentTask.status = 'cancelled';
+            currentTask.error = `Teleported ${dist.toFixed(1)} blocks by server — navigation cancelled`;
+            broadcastDashboard('task', currentTask);
+          }
+          log(`Teleport detected: moved ${dist.toFixed(1)} blocks — cancelled navigation`);
+        }
+        lastPos = pos.clone();
+      });
+
       // Death tracking
       bot.on('death', () => {
         combatStats.deaths++;

@@ -550,7 +550,8 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 30):
 
     start_ws_listener()
     start_quest_engine()
-    start_daemon_guardian()
+    if os.environ.get("DAEMON_GUARDIAN") == "1":
+        start_daemon_guardian()
 
     turn_count = 0
 

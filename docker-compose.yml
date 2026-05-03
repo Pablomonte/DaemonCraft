@@ -11,8 +11,8 @@ services:
       EULA: "true"
       TYPE: "PURPUR"
       VERSION: "1.21.11"
-      SERVER_NAME: "DaemonCraft-Dev"
-      MOTD: "\\u00A72DaemonCraft\\u00A7r Development Server"
+      SERVER_NAME: "Nico's DaemonCraft"
+      MOTD: "Nico's DaemonCraft"
 
       # --- Memory ---
       MEMORY: "12G"
@@ -70,7 +70,7 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      BROADCAST_MOTD: "DaemonCraft Dev Server"
+      BROADCAST_MOTD: "Nico's DaemonCraft"
       BROADCAST_PORT: "25565"
     volumes:
       - ./lan-broadcast/broadcast.py:/broadcast.py:ro

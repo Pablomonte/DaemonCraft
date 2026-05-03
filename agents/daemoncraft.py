@@ -410,6 +410,7 @@ def start_agent(
     port: int,
     interval: int = 30,
     max_chat_chars: int | None = None,
+    immortal: bool = False,
 ) -> int:
     """Start the Hermes agent using the native persistent loop. Returns PID."""
     profile_name = agent_name.lower().replace(" ", "-")
@@ -433,6 +434,10 @@ def start_agent(
     }
     if max_chat_chars:
         env["MC_MAX_CHAT_CHARS"] = str(max_chat_chars)
+
+    # Only enable daemon guardian for immortal agents (e.g. rolemaster)
+    if immortal:
+        env["DAEMON_GUARDIAN"] = "1"
 
     log(f"Starting persistent agent for {agent_name}...", cast_name)
     proc = subprocess.Popen(
@@ -497,7 +502,7 @@ def cmd_start(cast_name: str, cast: dict, mc_host: str, mc_port: int):
 
         # 3. Start agent
         max_chat_chars = agent.get("max_chat_chars")
-        start_agent(cast_name, name, port, max_chat_chars=max_chat_chars)
+        start_agent(cast_name, name, port, max_chat_chars=max_chat_chars, immortal=agent.get("immortal", False))
 
         time.sleep(2)  # Stagger to avoid resource spikes
 
@@ -709,7 +714,7 @@ def cmd_daemon(cast_name: str, cast: dict, mc_host: str, mc_port: int):
                     remove_pid(cast_name, name, "agent")
                 log(f"Agent {name} down, restarting...", cast_name)
                 try:
-                    start_agent(cast_name, name, port)
+                    start_agent(cast_name, name, port, immortal=agent.get("immortal", False))
                 except SystemExit:
                     pass
                 time.sleep(5)
