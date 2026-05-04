@@ -304,6 +304,10 @@ def setup_agent_profile(
             if api_mode:
                 provider_cfg["api_mode"] = api_mode
             config["providers"][provider] = provider_cfg
+            # Remove stale providers that don't match the active one
+            for stale in list(config["providers"].keys()):
+                if stale != provider:
+                    del config["providers"][stale]
 
     config_path.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
 

@@ -22,15 +22,15 @@ agents:
     template: rolemaster/siqui
     port: 3002
 
-    # --- Cloud config (default) ---
-    model: kimi-k2.6
-    provider: kimi-coding
-    base_url: https://api.moonshot.ai/v1
-
-    # --- Local Ollama config (uncomment to use) ---
+    # --- Local Ollama config (commented out) ---
     # model: gemma4:e4b-it-q8_0
     # provider: ollama
     # ollama_url: http://10.10.20.1:11434/v1   # optional override
+
+    # --- Cloud config (active) ---
+    model: kimi-k2.6
+    provider: kimi-coding
+    base_url: https://api.moonshot.ai/v1
 
     always_chat: true
     interval: 3

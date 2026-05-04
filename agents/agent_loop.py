@@ -832,10 +832,13 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
     base_url = None
     providers = config.get("providers", {})
     if providers and isinstance(providers, dict):
-        first_key = next(iter(providers))
-        pcfg = providers[first_key]
+        # Use the provider named in config.model.provider if available,
+        # otherwise fall back to the first provider entry.
+        model_provider = model_cfg.get("provider") if isinstance(model_cfg, dict) else None
+        target_key = model_provider if model_provider and model_provider in providers else next(iter(providers))
+        pcfg = providers[target_key]
         if isinstance(pcfg, dict):
-            provider = pcfg.get("provider") or first_key
+            provider = pcfg.get("provider") or target_key
             base_url = pcfg.get("base_url")
 
     toolsets = config.get("toolsets", [])
