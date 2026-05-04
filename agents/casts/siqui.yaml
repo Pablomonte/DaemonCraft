@@ -1,7 +1,11 @@
 # Siqui Cast — Rolemaster Companion for Raspberry Pi 4
 # Hybrid: Pamplinas world-manipulation + Companion warmth
-# Uses Kimi OAuth (via ~/.kimi/credentials/) — no API key needed
-# NOTE: Screenshots via prismarine-viewer + puppeteer + system chromium
+#
+# MODEL SELECTOR:
+#   Cloud (default):  model: kimi-k2.6, provider: kimi-coding, base_url: https://api.moonshot.ai/v1
+#   Local (Ollama):   model: gemma4:e4b-it-q8_0, provider: ollama
+#                     Ollama URL defaults to http://10.10.20.1:11434/v1
+#                     Override via agent.ollama_url or env var OLLAMA_URL
 
 name: siqui
 description: |
@@ -17,9 +21,17 @@ agents:
   - name: Siqui
     template: rolemaster/siqui
     port: 3002
+
+    # --- Cloud config (default) ---
     model: kimi-k2.6
     provider: kimi-coding
     base_url: https://api.moonshot.ai/v1
+
+    # --- Local Ollama config (uncomment to use) ---
+    # model: gemma4:e4b-it-q8_0
+    # provider: ollama
+    # ollama_url: http://10.10.20.1:11434/v1   # optional override
+
     always_chat: true
     interval: 3
     extra_toolsets:

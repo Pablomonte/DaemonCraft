@@ -163,3 +163,60 @@ If any answer is "yes" to questions 2 or 3, **do not add the toolset**.
 - `daemoncraft-platform-adapter.md` — WebSocket adapter design, session mapping, TTS integration
 - `chat-output-pipeline-v1.md` — Chat formatting, fragmentation, pipeline concerns
 - `MEMORY.md` — Incident narrative and debugging findings
+
+---
+
+## Appendix: Ollama Local Model Selector (DC-133)
+
+DaemonCraft now supports routing agents to a local Ollama endpoint instead of cloud APIs. This is useful for:
+- Offline operation (no internet required)
+- Cost reduction (no per-token billing)
+- Privacy (data never leaves the LAN)
+- Low-latency experimentation with local models (Gemma, Llama, Mistral, etc.)
+
+### Cast YAML usage
+
+```yaml
+agents:
+  - name: Siqui
+    model: gemma4:e4b-it-q8_0
+    provider: ollama               # <-- selector keyword
+    # ollama_url: http://10.10.20.1:11434/v1   # optional override
+    extra_toolsets:
+      - vision
+```
+
+When `provider: ollama` is set, `daemoncraft.py` automatically translates it to:
+- `provider: custom` (Hermes provider type)
+- `base_url: http://10.10.20.1:11434/v1` (Ollama OpenAI-compatible endpoint)
+- `api_mode: chat_completions` (OpenAI wire protocol)
+
+### Override methods (priority order)
+
+1. `agent.ollama_url` in cast YAML
+2. `OLLAMA_URL` environment variable
+3. Hardcoded default: `http://10.10.20.1:11434/v1`
+
+### Manual provider (advanced)
+
+If you prefer full control, you can bypass the `ollama` shorthand and write the Hermes-native config directly:
+
+```yaml
+agents:
+  - name: Siqui
+    model: gemma4:e4b-it-q8_0
+    provider: custom
+    base_url: http://10.10.20.1:11434/v1
+    api_mode: chat_completions
+```
+
+Both forms produce identical profile configs.
+
+### Context-window considerations
+
+Local models (especially quantized ones) have smaller context windows than cloud APIs. If you experience truncated responses or "context exceeded" errors, reduce:
+- `max_chat_chars` (e.g., 240 instead of 480)
+- `max_turns` in the cast config
+- SOUL prompt length (compress or split into skills)
+
+SairaAsua's `gemma_context.yaml` (branch `saira/eko`) is a reference implementation for per-bot context budgeting on Gemma4 8K.

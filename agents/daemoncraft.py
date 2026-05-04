@@ -267,6 +267,7 @@ def setup_agent_profile(
     if model:
         provider = agent.get("provider")
         base_url = agent.get("base_url")
+        api_mode = agent.get("api_mode")
         if not provider:
             # Auto-infer provider from model name
             model_lower = model.lower()
@@ -285,15 +286,24 @@ def setup_agent_profile(
                 provider = "openai"
                 base_url = base_url or "https://api.openai.com/v1"
 
+        # Ollama selector: provider "ollama" maps to custom OpenAI-compatible endpoint
+        if provider == "ollama":
+            provider = "custom"
+            base_url = base_url or agent.get("ollama_url") or os.getenv("OLLAMA_URL", "http://10.10.20.1:11434/v1")
+            api_mode = api_mode or "chat_completions"
+
         config["model"] = {"default": model}
         if provider:
             config["model"]["provider"] = provider
         if base_url:
             config["providers"] = config.get("providers", {})
-            config["providers"][provider] = {
+            provider_cfg = {
                 "provider": provider,
                 "base_url": base_url,
             }
+            if api_mode:
+                provider_cfg["api_mode"] = api_mode
+            config["providers"][provider] = provider_cfg
 
     config_path.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
 
