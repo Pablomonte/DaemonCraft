@@ -470,3 +470,11 @@ Each adapter connects to a single bot API. The gateway-per-bot is **not overkill
 ---
 
 *End of v5 design. Seeking final sign-off before Phase 1 implementation.*
+
+---
+
+## Appendix F: Toolset Separation (post-2026-05-04)
+
+The DaemonCraft platform adapter MUST NOT load CLI/TUI toolsets. See `gateway-toolset-separation.md` for the canonical toolset matrix, prevention checklist, and recovery procedure.
+
+**Quick reference:** Allowed toolsets for DaemonCraft are `minecraft`, `messaging`, `vision`, and `clarify`. Forbidden toolsets include `research`, `terminal`, `file`, `web`, `browser`, `code_execution`, `delegation`, `cronjob`, and `skills`.
