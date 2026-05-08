@@ -627,7 +627,13 @@ You don't need to do anything for this — it happens automatically.
             soul_dst.write_text("\n".join(soul_parts))
             log(f"Composed SOUL for {name} ({len(soul_parts)} parts)", cast_name)
 
-        # 1c. Copy BODY.md if present
+        # 1c. Copy BODY.md to workspace
+        if BODY_FILE.exists():
+            body_dst = workspace / "hermes-home" / "BODY.md"
+            shutil.copy2(BODY_FILE, body_dst)
+            log(f"BODY.md copied for {name}", cast_name)
+
+        # 1d. Start the gateway for this agent
         start_agent_gateway(name, cast_name)
 
         # 2. Start bot
@@ -661,9 +667,11 @@ You don't need to do anything for this — it happens automatically.
 
 
 def cmd_status(cast_name: str, cast: dict):
+    from agents.workspace import gateway_is_running
+
     agents = cast.get("agents", [])
-    print(f"\n{'Agent':<12} {'Bot PID':<10} {'Bot OK':<8} {'Agent PID':<10} {'Agent OK':<8}")
-    print("-" * 60)
+    print(f"\n{'Agent':<12} {'Bot PID':<10} {'Bot OK':<8} {'Agent PID':<10} {'Agent OK':<8} {'Gateway':<10}")
+    print("-" * 70)
     all_ok = True
     for agent in agents:
         name = agent["name"]
@@ -671,17 +679,20 @@ def cmd_status(cast_name: str, cast: dict):
         agent_pid = read_pid(cast_name, name, "agent")
         bot_ok = "yes" if bot_pid and is_alive(bot_pid) else "NO"
         agent_ok = "yes" if agent_pid and is_alive(agent_pid) else "NO"
-        if bot_ok == "NO" or agent_ok == "NO":
+        gw_ok = "yes" if gateway_is_running(name) else "NO"
+        if bot_ok == "NO" or agent_ok == "NO" or gw_ok == "NO":
             all_ok = False
-        print(f"{name:<12} {str(bot_pid or '-'):<10} {bot_ok:<8} {str(agent_pid or '-'):<10} {agent_ok:<8}")
+        print(f"{name:<12} {str(bot_pid or '-'):<10} {bot_ok:<8} {str(agent_pid or '-'):<10} {agent_ok:<8} {gw_ok:<10}")
     print()
     if all_ok:
-        log(f"All {len(agents)} agents healthy.", cast_name)
+        log(f"All {len(agents)} agents healthy (bot + agent + gateway).", cast_name)
     else:
-        log("Some agents are not running!", cast_name)
+        log("Some agents are not fully running!", cast_name)
 
 
 def cmd_stop(cast_name: str, cast: dict, target_name: str | None = None):
+    from agents.workspace import stop_agent_gateway
+
     agents = cast.get("agents", [])
     if target_name:
         agents = [a for a in agents if a["name"].lower() == target_name.lower()]
@@ -705,7 +716,9 @@ def cmd_stop(cast_name: str, cast: dict, target_name: str | None = None):
                 except ProcessLookupError:
                     pass
             remove_pid(cast_name, name, kind)
-        log(f"{name} stopped.", cast_name)
+        # Stop the gateway
+        stop_agent_gateway(name, cast_name)
+        log(f"{name} stopped (bot + agent + gateway).", cast_name)
 
     if target_name:
         log(f"Agent '{target_name}' stopped.", cast_name)
