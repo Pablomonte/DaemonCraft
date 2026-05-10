@@ -1,13 +1,27 @@
 #!/usr/bin/env python3
 """
-Hermes-native persistent agent loop for Minecraft bots — HEARTBEAT INJECTOR ONLY.
+DaemonCraft agent loop — Autonomía Corporal.
 
-DC-112 Architecture: The gateway owns all cognition (single AIAgent session).
-The agent_loop's sole job is to poll sensors every 30s and inject heartbeat
-context into the gateway via the bot server's WebSocket.
+Runs alongside the per-agent gateway. Two modes seamlessly integrated:
+
+  1. PLAN ACTIVE → autonomous execution via Gemma-Andy ($0/call).
+     Reads workspace/plan.json, feeds steps to embodied service,
+     verifies against machine-checkable predicates, advances or escalates.
+
+  2. NO PLAN → idle heartbeat injector.
+     Gathers world state and sends to gateway every ~30s.
+
+Infrastructure threads (always running):
+  - WebSocket listener (chat tracking, quest events, interrupts)
+  - Quest engine (blueprint phase advancement via scoreboards)
+  - Daemon guardian (creative mode + effects, conditional on DAEMON_GUARDIAN=1)
+
+CONTRACT: Steve (MiniMax $) owns plans, verification, escalations.
+Gemma-Andy (Ollama $0) owns execution of concrete intents.
+The loop is the glue: finite-state controller, not informal loop.
 
 Usage:
-    python agent_loop.py --profile stevie --interval 30
+    python agent_loop.py --profile steve --interval 7
 """
 
 import argparse
@@ -25,7 +39,16 @@ HERMES_DIR = Path.home() / ".hermes" / "hermes-agent"
 if str(HERMES_DIR) not in sys.path:
     sys.path.insert(0, str(HERMES_DIR))
 
+# Import plan schema from same directory (Autonomía Corporal)
+_AGENTS_DIR = Path(__file__).resolve().parent
+if str(_AGENTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_AGENTS_DIR))
+from plan_schema import (
+    Plan, PlanState, DangerLevel, VerifyType, load_plan, save_plan,
+)
+
 MC_API_URL = os.getenv("MC_API_URL", "http://localhost:3001")
+EMBODIED_SERVICE_URL = os.getenv("EMBODIED_SERVICE_URL", "http://localhost:7790")
 BOT_USERNAME = os.getenv("MC_USERNAME", "Steve").lower()
 
 # DC-132 metrics — append-only JSONL per cast per UTC day. The gateway
@@ -154,6 +177,246 @@ def fetch_bot_inventory() -> dict:
         return data.get("data", {})
     except Exception:
         return {}
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+# Autonomía Corporal — Plan execution (Gemma-Andy $0/call)
+# ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+_MAX_EMBODIED_RETRIES = 3
+_EMBODIED_BACKOFF_BASE = 2.0
+
+
+def _log_event(event: str, **fields) -> None:
+    """Emit a structured JSON log line."""
+    record = {"ts": time.time(), "bot": BOT_USERNAME, "event": event, **fields}
+    print(json.dumps(record, separators=(",", ":")), flush=True)
+
+
+def call_embodied(intent: str, deadline_s: int = 20) -> dict:
+    """Call POST /intent on the embodied service. Retries with backoff."""
+    last_error = None
+    for attempt in range(_MAX_EMBODIED_RETRIES + 1):
+        payload = json.dumps({"intent": intent, "deadline_seconds": deadline_s}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{EMBODIED_SERVICE_URL}/intent",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=deadline_s + 10) as resp:
+                body = resp.read().decode("utf-8")
+                result = json.loads(body) if body else {"ok": True}
+            if result.get("ok") is not None:
+                return result
+        except Exception as e:
+            last_error = str(e)
+        if attempt < _MAX_EMBODIED_RETRIES:
+            delay = _EMBODIED_BACKOFF_BASE ** attempt
+            time.sleep(delay)
+    _log_event("embodied_unreachable", attempts=_MAX_EMBODIED_RETRIES + 1, last_error=last_error)
+    return {"ok": False, "_error": f"embodied_service_unreachable: {last_error}"}
+
+
+def _check_danger(embodied_result: dict) -> DangerLevel | None:
+    """Extract danger level from embodied service response."""
+    plan = embodied_result.get("plan", {})
+    risk_str = plan.get("operational_risk", "")
+    if not risk_str or risk_str == "none":
+        return None
+    return DangerLevel.parse_risk(risk_str)
+
+
+def verify_step(step, embodied_result: dict) -> tuple[bool, str]:
+    """Verify a step against embodied service response and bot state."""
+    verify = step.verify
+
+    if not embodied_result.get("ok"):
+        return False, f"embodied_not_ok: {embodied_result.get('_error', 'unknown')}"
+
+    execution_results = embodied_result.get("execution_results", [])
+    if not execution_results:
+        return False, "no_execution_results"
+
+    failed = [r for r in execution_results if not r.get("ok")]
+    if failed:
+        reasons = [f"{r.get('tool', '?')}:{r.get('error_type', '?')}" for r in failed]
+        return False, f"tool_failures: {', '.join(reasons)}"
+
+    try:
+        if verify.type == VerifyType.INVENTORY_HAS:
+            inv = fetch_bot_inventory()
+            item = verify.item.lower()
+            count = 0
+            for key, val in inv.items():
+                if isinstance(key, str) and key.lower() == item:
+                    count += int(val) if isinstance(val, (int, float)) else 0
+            categories = inv.get("categories", {})
+            if isinstance(categories, dict):
+                for cat in categories.values():
+                    if isinstance(cat, dict):
+                        for citem, ccount in cat.items():
+                            if citem.lower() == item:
+                                count += int(ccount) if isinstance(ccount, (int, float)) else 0
+            passed = count >= verify.count
+            return passed, f"inventory_has({item}): {count} >= {verify.count} → {'PASS' if passed else 'FAIL'}"
+
+        elif verify.type == VerifyType.POSITION_REACHED:
+            status = fetch_bot_status()
+            pos = status.get("position", {})
+            if not pos:
+                return False, "no_position_data"
+            dist = ((pos.get("x", 0) - verify.target_x) ** 2 + (pos.get("z", 0) - verify.target_z) ** 2) ** 0.5
+            passed = dist <= verify.max_distance
+            return passed, f"position_reached: dist={dist:.1f} ≤ {verify.max_distance} → {'PASS' if passed else 'FAIL'}"
+
+        elif verify.type == VerifyType.AREA_CLEAR:
+            nearby = fetch_bot_nearby()
+            blocks = nearby.get("blocks", nearby.get("nearby_blocks", []))
+            if not blocks:
+                return False, "no_nearby_blocks_data"
+            blocks_above = sum(1 for b in blocks
+                             if verify.x1 <= b.get("x", 0) <= verify.x2
+                             and verify.z1 <= b.get("z", 0) <= verify.z2
+                             and b.get("y", 0) > verify.y)
+            passed = blocks_above <= verify.max_blocks_above
+            return passed, f"area_clear: {blocks_above} blocks above ≤ {verify.max_blocks_above} → {'PASS' if passed else 'FAIL'}"
+
+        elif verify.type == VerifyType.ENTITY_NEARBY:
+            nearby = fetch_bot_nearby()
+            entities = nearby.get("entities", nearby.get("nearby_entities", []))
+            for e in entities:
+                etype = (e.get("type") or e.get("name", "")).lower()
+                if verify.entity_type.lower() in etype:
+                    return True, f"entity_nearby({verify.entity_type}): found"
+            return False, f"entity_nearby({verify.entity_type}): not found"
+
+        elif verify.type == VerifyType.BLOCK_PLACED:
+            nearby = fetch_bot_nearby()
+            blocks = nearby.get("blocks", nearby.get("nearby_blocks", []))
+            for b in blocks:
+                if (b.get("x") == verify.block_x and b.get("y") == verify.block_y
+                        and b.get("z") == verify.block_z):
+                    bname = (b.get("name") or "").lower()
+                    if verify.block_material:
+                        material_ok = verify.block_material.lower() in bname
+                        return material_ok, f"block_placed: found={bname} match={material_ok}"
+                    return True, f"block_placed: found={bname}"
+            return False, f"block_placed({verify.block_x},{verify.block_y},{verify.block_z}): not found"
+
+        else:
+            return False, f"unknown_verify_type: {verify.type}"
+
+    except Exception as e:
+        return False, f"verify_exception: {e}"
+
+
+def wake_steve(reason: str, step_id: int | None = None, detail: str = "") -> bool:
+    """Wake Steve (MiniMax) via the bot server."""
+    payload = {"type": "wake_up", "reason": reason, "step_id": step_id, "detail": detail}
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            f"{MC_API_URL}/agent/wake",
+            data=data, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status < 300
+    except Exception as e:
+        _log_event("wake_steve_failed", reason=reason, error=str(e))
+        return False
+
+
+def process_plan_tick(plan: Plan, now: float) -> Plan:
+    """
+    Execute one tick of the autonomous plan execution loop.
+    Pure function: reads plan state, acts, returns updated plan.
+    """
+    if plan.state == PlanState.IDLE:
+        _log_event("plan_start", goal=plan.goal, steps=len(plan.steps))
+        plan.state = PlanState.EXECUTING
+        plan.started_at_ts = now
+        plan.last_advance_ts = now
+        save_plan(plan)
+
+    if plan.state in (PlanState.COMPLETED, PlanState.ESCALATED):
+        return plan
+
+    if plan.state == PlanState.BLOCKED:
+        if plan.timed_out(now):
+            _log_event("plan_timeout", goal=plan.goal, state="blocked")
+            wake_steve("plan_timeout", detail=f"No advance in {plan.hard_timeout_s}s")
+            plan.state = PlanState.ESCALATED
+            save_plan(plan)
+        return plan
+
+    if plan.state != PlanState.EXECUTING:
+        return plan
+
+    if plan.done:
+        _log_event("plan_complete", goal=plan.goal, steps=len(plan.steps))
+        plan.state = PlanState.COMPLETED
+        save_plan(plan)
+        wake_steve("plan_complete", detail=f"Goal '{plan.goal}' completed")
+        return plan
+
+    if plan.timed_out(now):
+        _log_event("plan_timeout", goal=plan.goal, state="executing")
+        wake_steve("plan_timeout", detail=f"No advance in {plan.hard_timeout_s}s")
+        plan.state = PlanState.ESCALATED
+        save_plan(plan)
+        return plan
+
+    step = plan.current
+    if step is None:
+        plan.state = PlanState.BLOCKED
+        save_plan(plan)
+        return plan
+
+    _log_event("step_start", step_id=step.id, intent=step.intent[:120],
+               retry=step.retries, max_retries=step.max_retries)
+
+    embodied_result = call_embodied(step.intent)
+
+    danger = _check_danger(embodied_result)
+    if danger is not None:
+        _log_event("danger_detected", step_id=step.id, danger=danger.value, is_critical=danger.is_critical)
+        if danger.is_critical:
+            plan.state = PlanState.ESCALATED
+            save_plan(plan)
+            wake_steve("danger_critical", step_id=step.id, detail=f"Danger: {danger.value}")
+            return plan
+        wake_steve("danger_detected", step_id=step.id, detail=f"Danger: {danger.value} (non-critical)")
+
+    passed, reason = verify_step(step, embodied_result)
+    _log_event("step_verify", step_id=step.id, passed=passed, reason=reason)
+
+    if passed:
+        plan.current_step += 1
+        plan.last_advance_ts = now
+        step.retries = 0
+        _log_event("step_advance", step_id=step.id, next_step=plan.current_step)
+        if plan.done:
+            plan.state = PlanState.COMPLETED
+            save_plan(plan)
+            wake_steve("plan_complete", detail=f"Goal '{plan.goal}' completed")
+            return plan
+        save_plan(plan)
+        return plan
+
+    step.retries += 1
+    if step.exhausted:
+        _log_event("step_exhausted", step_id=step.id, retries=step.retries)
+        plan.state = PlanState.BLOCKED
+        save_plan(plan)
+        wake_steve("step_failed", step_id=step.id, detail=f"Step {step.id} exhausted: {reason}")
+        return plan
+
+    _log_event("step_retry", step_id=step.id, retries=step.retries,
+               backoff=step.next_backoff_seconds, reason=reason)
+    plan.last_advance_ts = now
+    save_plan(plan)
+    return plan
 
 
 # ══════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -581,14 +844,19 @@ def start_daemon_guardian():
 
 
 # ═════════════════════════════════════════════════════════════════════════════════════════════════════════
-# Main loop — HEARTBEAT INJECTOR ONLY
+# Main loop — plan-driven execution + idle heartbeat
 # ═════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 30):
-    """Run the heartbeat injector loop. No AIAgent — the gateway owns cognition."""
-    print(f"[loop] Heartbeat injector started: {profile_name}")
+_IDLE_HEARTBEAT_COUNT = 0
+_IDLE_HEARTBEAT_EVERY = 4  # ~28s at 7s interval
+
+
+def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
+    """Run the agent loop. Plan-driven when active, heartbeat when idle."""
+    print(f"[loop] Agent loop started: {profile_name}")
     print(f"[loop] Interval: {interval}s")
     print(f"[loop] MC_API_URL: {MC_API_URL}")
+    print(f"[loop] Embodied service: {EMBODIED_SERVICE_URL}")
 
     start_ws_listener()
     start_quest_engine()
@@ -600,44 +868,73 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 30):
     try:
         while True:
             turn_count += 1
+            now = time.time()
 
             triggered = chat_event.wait(timeout=interval)
             chat_event.clear()
 
             if _is_standby():
-                print("[loop] Standby — skipping heartbeat", flush=True)
+                print("[loop] Standby — skipping turn", flush=True)
                 send_agent_heartbeat(next_turn_in=interval, turn_in_progress=False)
                 continue
 
-            # Gather world state
-            print(f"[loop] Turn {turn_count} — gathering state...", flush=True)
-            turn_in_progress.set()
-            send_agent_heartbeat(next_turn_in=None, turn_in_progress=True)
+            # ── Try autonomous plan execution first ──
+            plan = load_plan()
+            if plan is not None and plan.state in (PlanState.IDLE, PlanState.EXECUTING, PlanState.BLOCKED):
+                global _IDLE_HEARTBEAT_COUNT
+                _IDLE_HEARTBEAT_COUNT = 0
 
-            try:
-                status = fetch_bot_status()
-                nearby = fetch_bot_nearby()
-                inventory = fetch_bot_inventory()
-                plan = fetch_plan()
+                turn_in_progress.set()
+                send_agent_heartbeat(next_turn_in=None, turn_in_progress=True)
 
-                # Build events list from recent activity
-                events = []
-                if triggered:
-                    events.append("Chat or quest activity detected")
+                try:
+                    plan = process_plan_tick(plan, now)
+                except Exception as e:
+                    print(f"[loop] Plan tick error: {e}", flush=True)
+                finally:
+                    turn_in_progress.clear()
+                    send_agent_heartbeat(next_turn_in=interval, turn_in_progress=False)
 
-                # Send heartbeat context to gateway
-                ok = send_heartbeat_context(status, nearby, inventory, plan, events)
-                if ok:
-                    print(f"[loop] Heartbeat sent (status={bool(status)}, nearby={bool(nearby)}, plan={bool(plan)})", flush=True)
-                    _emit_metric("heartbeat", triggered=bool(triggered))
-                else:
-                    print("[loop] Heartbeat send failed", flush=True)
+                # Apply backoff if current step is retrying
+                if (plan.state == PlanState.EXECUTING and plan.current
+                        and plan.current.retries > 0):
+                    backoff = plan.current.next_backoff_seconds
+                    if backoff > 0:
+                        print(f"[loop] Backoff {backoff:.1f}s for step {plan.current.id}", flush=True)
+                        time.sleep(backoff)
 
-            except Exception as e:
-                print(f"[loop] Error gathering state: {e}", flush=True)
-            finally:
-                turn_in_progress.clear()
-                send_agent_heartbeat(next_turn_in=interval, turn_in_progress=False)
+                continue
+
+            # ── No plan (or completed/escalated) — idle heartbeat ──
+            _IDLE_HEARTBEAT_COUNT += 1
+            if _IDLE_HEARTBEAT_COUNT >= _IDLE_HEARTBEAT_EVERY:
+                _IDLE_HEARTBEAT_COUNT = 0
+                print(f"[loop] Turn {turn_count} — idle heartbeat...", flush=True)
+                turn_in_progress.set()
+                send_agent_heartbeat(next_turn_in=None, turn_in_progress=True)
+
+                try:
+                    status = fetch_bot_status()
+                    nearby = fetch_bot_nearby()
+                    inventory = fetch_bot_inventory()
+                    bot_plan = fetch_plan()
+
+                    events = []
+                    if triggered:
+                        events.append("Chat or quest activity detected")
+
+                    ok = send_heartbeat_context(status, nearby, inventory, bot_plan, events)
+                    if ok:
+                        print(f"[loop] Idle heartbeat sent", flush=True)
+                        _emit_metric("heartbeat", triggered=bool(triggered))
+                    else:
+                        print("[loop] Idle heartbeat send failed", flush=True)
+
+                except Exception as e:
+                    print(f"[loop] Idle heartbeat error: {e}", flush=True)
+                finally:
+                    turn_in_progress.clear()
+                    send_agent_heartbeat(next_turn_in=interval, turn_in_progress=False)
 
     except KeyboardInterrupt:
         print("[loop] Interrupted. Exiting.")
