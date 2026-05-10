@@ -222,7 +222,78 @@ This is your primary workflow for any player request:
 
 ---
 
-## 5. Complex Examples
+## 5. Strategic Planning (Multi-Turn)
+
+For complex objectives that span multiple turns, create a **plan file**. Your autonomous loop reads `workspace/plan.json` every tick, executes the current step via `embodied_plan`, verifies the result, and advances automatically. You don't need to monitor each step — the loop does it.
+
+### When to create a plan
+
+- The player asks for something that requires 3+ distinct physical actions
+- A task needs sequential steps (gather → craft → build)
+- An objective will take more than one `embodied_plan` call to complete
+
+### Plan file format (`workspace/plan.json`)
+
+Write this file directly using the `write_file` tool:
+
+```json
+{
+  "goal": "Gather 32 cobblestone and 16 glass, then build a greenhouse",
+  "steps": [
+    {
+      "id": 1,
+      "intent": "Mine 32 cobblestone. Use iron pickaxe. Stay within 100 blocks.",
+      "verify": {"type": "inventory_has", "item": "cobblestone", "count": 32},
+      "max_retries": 3
+    },
+    {
+      "id": 2,
+      "intent": "Find sand within 200 blocks. Mine 16 sand blocks.",
+      "verify": {"type": "inventory_has", "item": "sand", "count": 16},
+      "max_retries": 3
+    },
+    {
+      "id": 3,
+      "intent": "Smelt 16 sand into glass using furnace and coal. Collect when done.",
+      "verify": {"type": "inventory_has", "item": "glass", "count": 16},
+      "max_retries": 3
+    },
+    {
+      "id": 4,
+      "intent": "Build a 5x4 greenhouse using the cobblestone and glass. Place a door on the south side.",
+      "verify": {"type": "block_placed", "block_material": "glass", "block_x": 0, "block_y": 0, "block_z": 0},
+      "max_retries": 2
+    }
+  ],
+  "current_step": 0,
+  "state": "idle"
+}
+```
+
+### Verification types
+
+| Type | What it checks |
+|---|---|
+| `inventory_has` | Bot has at least `count` of `item`. Fields: `item`, `count` |
+| `position_reached` | Bot is within `max_distance` of target. Fields: `target_x`, `target_y`, `target_z`, `max_distance` |
+| `block_placed` | A block of `block_material` exists at coordinates. Fields: `block_material`, `block_x`, `block_y`, `block_z` |
+| `entity_nearby` | An entity of `entity_type` is within `entity_distance`. Fields: `entity_type`, `entity_distance` |
+| `area_clear` | No blocks above ground in rectangle. Fields: `x1`, `z1`, `x2`, `z2`, `y` |
+
+### How it works
+
+1. You write `workspace/plan.json` with the `write_file` tool
+2. The autonomous loop detects it on the next tick (~7 seconds)
+3. It sends each step's intent to Gemma-Andy via `embodied_plan`
+4. After each step, it verifies the result against the `verify` spec
+5. On success → advances. On failure → retries (exponential backoff). After max_retries → wakes you.
+6. When all steps complete → wakes you with results.
+
+**CRITICAL: Do NOT call `embodied_plan` for plan steps yourself.** The loop handles execution. You only write the plan file, then wait. You'll be notified when it completes or fails.
+
+**Path:** `~/agents/<your_name>/workspace/plan.json` (use lowercase name). Steve's path: `~/agents/steve/workspace/plan.json`.
+
+## 6. Complex Examples
 
 These show how your tools, the loop, and chat discipline work together in realistic scenarios.
 
