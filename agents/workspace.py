@@ -101,6 +101,7 @@ def bootstrap_agent_workspace(
         },
         "group_sessions_per_user": False,
         "streaming": {"enabled": False},
+        "busy_input_mode": "steer",
         "plugins": {
             "enabled": ["dialogue-handoff", "hmk-memory"],
         },
