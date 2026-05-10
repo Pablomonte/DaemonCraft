@@ -1312,7 +1312,7 @@ function getNearby(radius = 32) {
 
   // Notable blocks in wider radius
   const blockTypes = {};
-  const scanR = Math.min(radius, 16); // block scan limited for performance
+  const scanR = Math.min(radius, 64); // block scan — decent range for general scans
   for (let dx = -scanR; dx <= scanR; dx += 2) {
     for (let dy = -8; dy <= 8; dy++) {
       for (let dz = -scanR; dz <= scanR; dz += 2) {

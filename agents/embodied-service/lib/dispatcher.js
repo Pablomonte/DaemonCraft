@@ -37,24 +37,64 @@ import { resolveTarget, resolveFrom, asPosition, resolvePositionKeyword, botPost
 const HANDLERS = {
   // ── Perception ─────────────────────────────────────────────────
   scan_nearby: async (args) => {
-    // Bot's GET /nearby returns full local scan; canonical's
-    // optional `blocks`/`entities` filters narrow client-side.
-    const radius = args.radius ?? 16;
-    const r = await botGet(`/nearby?radius=${radius}`);
-    if (!r.ok) return botFail(r);
-    let data = r.body?.data ?? r.body;
-    if (args.blocks?.length || args.entities?.length) {
-      data = { ...data };
-      if (args.blocks?.length && Array.isArray(data.blocks)) {
-        const want = new Set(args.blocks.map((b) => b.toLowerCase()));
-        data.blocks = data.blocks.filter((b) => want.has(b.name.toLowerCase()));
-      }
-      if (args.entities?.length && Array.isArray(data.entities)) {
-        const want = new Set(args.entities.map((e) => e.toLowerCase()));
-        data.entities = data.entities.filter((e) => want.has((e.type || e.name || "").toLowerCase()));
+    // When specific blocks are requested, use find_blocks (efficient
+    // Mineflayer chunk search, no practical radius limit). For entities
+    // and general scans, use /nearby (brute-force, capped at 64).
+    const radius = args.radius ?? 64;
+    const wantBlocks = args.blocks?.length ? new Set(args.blocks.map((b) => b.toLowerCase())) : null;
+    const wantEntities = args.entities?.length ? new Set(args.entities.map((e) => e.toLowerCase())) : null;
+
+    let blocks = [];
+    let entities = [];
+
+    if (wantBlocks) {
+      // Use efficient find_blocks for each requested block type
+      const searches = [...wantBlocks].map(async (blockName) => {
+        const r = await botPost("/action/find_blocks", { block: blockName, radius, count: 50 });
+        if (r.ok && Array.isArray(r.body?.locations)) {
+          const locs = r.body.locations;
+          // Return EACH location as a block entry with position
+          return locs.map(loc => ({
+            name: blockName,
+            position: { x: Math.floor(loc.x), y: Math.floor(loc.y), z: Math.floor(loc.z) },
+          }));
+        }
+        return [];
+      });
+      const results = await Promise.all(searches);
+      const allFound = results.flat();
+      // Preserve individual positions — don't merge
+      blocks = allFound.map((b, i) => ({
+        name: b.name,
+        nearest: b.position,
+        count: allFound.filter(bb => bb.name === b.name).length,
+      }));
+      // Deduplicate by name, keep first nearest
+      const seen = new Set();
+      blocks = blocks.filter(b => {
+        if (seen.has(b.name)) return false;
+        seen.add(b.name);
+        return true;
+      });
+    }
+
+    // Entities always come from /nearby
+    const nearbyR = await botGet(`/nearby?radius=${Math.min(radius, 64)}`);
+    if (nearbyR.ok) {
+      const nd = nearbyR.body?.data ?? nearbyR.body ?? {};
+      if (Array.isArray(nd.entities)) entities = nd.entities;
+      // If no specific blocks requested, use nearby's block scan
+      if (!wantBlocks && Array.isArray(nd.blocks)) {
+        blocks = nd.blocks;
       }
     }
-    return { ok: true, data };
+
+    // Client-side filter
+    if (wantEntities) {
+      entities = entities.filter((e) => wantEntities.has((e.type || e.name || "").toLowerCase()));
+    }
+
+    return { ok: true, data: { blocks, entities, scanRadius: radius } };
   },
 
   take_screenshot: async (args) =>

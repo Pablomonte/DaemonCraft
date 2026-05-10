@@ -1,0 +1,42 @@
+{
+  "_comment": "DaemonCraft embodied-service tunable parameters. Single source of truth.",
+  "_updated": "2026-05-10",
+
+  "scanning": {
+    "_comment": "scan_nearby radius limits",
+    "default_radius": 64,
+    "max_general_scan_radius": 64,
+    "_note": "When specific blocks are requested, find_blocks is used (efficient, no practical limit)"
+  },
+
+  "ollama": {
+    "_comment": "Gemma-Andy model parameters",
+    "model": "gemma-andy:e4b-v2-2-3-q8_0",
+    "endpoint": "http://10.10.20.1:11434",
+    "num_predict": 1024,
+    "_note": "Don't touch temperature/top_p/min_p — Modelfile defaults are canonical"
+  },
+
+  "dispatch": {
+    "_comment": "Execution and recovery",
+    "max_retries": 1,
+    "recovery_timeout_seconds": 30,
+    "default_deadline_seconds": 30,
+    "_note": "Recovery timeout is independent of caller deadline"
+  },
+
+  "guardian": {
+    "_comment": "Default safety constraints",
+    "autonomy_level": 2,
+    "no_tnt": true,
+    "no_protected_zone_edit": true,
+    "no_player_harm": true,
+    "executor_filtering": true
+  },
+
+  "tools": {
+    "_comment": "Default allowed_tools subset (null = all executor_supported)",
+    "default_subset": null,
+    "_note": "Set to array of tool names to restrict defaults. null = use all 42 supported."
+  }
+}
