@@ -158,7 +158,7 @@ def bootstrap_agent_workspace(
 MC_API_URL=http://localhost:{port}
 BOT_API_URL=http://localhost:{port}
 MC_USERNAME={agent_name}
-MC_KNOWN_BOTS={known_bots_csv}
+MC_KNOWN_BOTS={known_bots}
 HERMES_PLATFORM=daemoncraft
 HERMES_MAX_ITERATIONS=6
 HERMES_TURN_TIMEOUT_SECONDS=45

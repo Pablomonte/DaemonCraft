@@ -3524,7 +3524,8 @@ const httpServer = http.createServer(async (req, res) => {
       if (path === '/dashboard') {
         const htmlPath = new URL('dashboard.html', import.meta.url).pathname;
         try {
-          const html = fs.readFileSync(htmlPath, 'utf8');
+          let html = fs.readFileSync(htmlPath, 'utf8');
+          html = html.replace('<span id="bot-name">Bot</span>', `<span id="bot-name">${config.mc.username}</span>`);
           res.writeHead(200, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' });
           return res.end(html);
         } catch {
