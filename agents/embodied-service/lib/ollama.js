@@ -104,7 +104,7 @@ export async function callGemmaAndy(payload, { signal, options = {} } = {}) {
       // example #1 of the integration guide shows). Greedy is for
       // deterministic eval; production needs the small variance for
       // multi-step planning.
-      num_predict: 512,
+      num_predict: 1024,
       ...options,
     },
   };

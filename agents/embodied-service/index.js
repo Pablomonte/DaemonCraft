@@ -333,9 +333,9 @@ async function handleIntent(req, res) {
       previous_error,
     });
 
+    const RECOVERY_TIMEOUT_SEC = 30; // recovery gets its own budget, not the original deadline
     const recovery_controller = new AbortController();
-    const recovery_deadline_ms = Math.max(1000, (deadline_seconds * 1000) - (Date.now() - t0));
-    const recovery_timer = setTimeout(() => recovery_controller.abort(), recovery_deadline_ms);
+    const recovery_timer = setTimeout(() => recovery_controller.abort(), RECOVERY_TIMEOUT_SEC * 1000);
 
     let recovery_result;
     try {
