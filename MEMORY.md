@@ -177,6 +177,38 @@ platform_toolsets:
 
 These changes are global (affect all platforms) but are backward-compatible.
 
+## Autonomía Corporal — Autonomous Plan Execution
+
+**Implemented 2026-05-10.** Two new modules in `agents/`:
+
+### `plan_schema.py` — Data model
+- `PlanState` enum: IDLE → EXECUTING → BLOCKED → ESCALATED → REPLANNING → COMPLETED
+- `DangerLevel` enum with explicit taxonomy (per GePeTo review)
+- `VerifyType` enum: inventory_has, area_clear, position_reached, block_placed, entity_nearby
+- `Step` dataclass: id, intent, verify, max_retries, retries, backoff_base
+- `Plan` dataclass: goal, steps, current_step, state, timeouts
+- Serde: `load_plan()` / `save_plan()` → `workspace/plan.json` (atomic write via temp file)
+
+### `autonomous_loop.py` — Finite-state controller
+- Reads plan from `workspace/plan.json`, executes steps via `POST /intent` to embodied service
+- Machine-checkable verification against bot server API
+- Exponential backoff on retry (2^retries seconds), max 3 retries
+- Confidence gate: if `operational_risk` high/critical → escalate immediately
+- Structured JSON logging for every decision
+- Idle heartbeat: world_state injection via Gemma every ~30s when no plan active
+
+### Integration
+- `daemoncraft.py`: set `DC_AUTONOMOUS=1` to launch `autonomous_loop.py` instead of `agent_loop.py`
+- `workspace.py`: creates `workspace/` subdir, writes `EMBODIED_SERVICE_URL` and `PLAN_FILE` to `.env`
+- Default mode: heartbeat injector (unchanged). Opt-in to autonomous via env var.
+
+### Wake-up triggers (Steve escalation)
+- `plan_complete` — all steps done
+- `step_failed` — step exhausted max_retries
+- `danger_critical` — irreversible_action, security_risk, plan_corruption
+- `plan_timeout` — no advance in 5 min
+
+
 ## Agent Operations & Troubleshooting
 
 ### Starting / Stopping / Updating Agents

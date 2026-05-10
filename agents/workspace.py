@@ -56,7 +56,12 @@ def bootstrap_agent_workspace(
     else:
         _log(f"Workspace exists: {workspace}", cast_name)
 
-    # ── 2. Write config.yaml with daemoncraft platform ─────────
+    # ── 2. Create plan workspace directory (Autonomía Corporal) ──
+    plan_dir = workspace / "workspace"
+    plan_dir.mkdir(parents=True, exist_ok=True)
+    _log(f"Plan workspace ready: {plan_dir}", cast_name)
+
+    # ── 3. Write config.yaml with daemoncraft platform ─────────
     import yaml
 
     config = {
@@ -126,7 +131,7 @@ def bootstrap_agent_workspace(
     config_path.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
     _log(f"Config written: {config_path}", cast_name)
 
-    # ── 3. Write .env ──────────────────────────────────────────
+    # ── 4. Write .env ──────────────────────────────────────────
     env_path = hermes_home / ".env"
     prov_upper = provider.upper().replace("-", "_").replace("_OAUTH", "")
 
@@ -156,6 +161,10 @@ HERMES_MAX_ITERATIONS=6
 HERMES_TURN_TIMEOUT_SECONDS=45
 GATEWAY_ALLOW_ALL_USERS=true
 
+# Autonomía Corporal — embodied service (Gemma-Andy)
+EMBODIED_SERVICE_URL=http://localhost:7790
+PLAN_FILE={workspace}/workspace/plan.json
+
 # Memory Kit
 HMK_AGENT_MEMORY_BASE={workspace}/agent-memory
 HERMES_HOME={hermes_home}
@@ -166,14 +175,14 @@ HERMES_HOME={hermes_home}
     env_path.write_text(env_content)
     _log(f".env written: {env_path}", cast_name)
 
-    # ── 4. Link hermes-agent from deploy (shared code) ──────────
+    # ── 5. Link hermes-agent from deploy (shared code) ──────────
     app_dir = workspace / "app"
     deploy = Path.home() / ".hermes" / "hermes-agent"
     if not app_dir.exists():
         app_dir.symlink_to(deploy)
         _log(f"Symlinked app/ → {deploy}", cast_name)
 
-    # ── 5. Create venv ─────────────────────────────────────────
+    # ── 6. Create venv ─────────────────────────────────────────
     venv_dir = app_dir / "venv"
     if not venv_dir.exists():
         _log(f"Creating venv: {venv_dir}", cast_name)
@@ -189,7 +198,7 @@ HERMES_HOME={hermes_home}
 
     _log(f"Venv ready: {venv_dir}", cast_name)
 
-    # ── 6. Symlink shared skills ────────────────────────────────
+    # ── 7. Symlink shared skills ────────────────────────────────
     shared_skills = [
         (Path.home() / ".hermes" / "skills" / "mariano-memory-kit", "mariano-memory-kit"),
     ]
@@ -200,7 +209,7 @@ HERMES_HOME={hermes_home}
             dst.symlink_to(src)
             _log(f"Symlinked skill: {name}", cast_name)
 
-    # ── 7. Install systemd service ─────────────────────────────
+    # ── 8. Install systemd service ─────────────────────────────
     service_dst = SYSTEMD_USER_DIR / "hermes-gateway@.service"
     if not service_dst.exists():
         shutil.copy2(SYSTEMD_TEMPLATE, service_dst)
@@ -213,7 +222,7 @@ HERMES_HOME={hermes_home}
         capture_output=True,
     )
 
-    # ── 8. Initialize memory DB ────────────────────────────────
+    # ── 9. Initialize memory DB ────────────────────────────────
     hmk_script = workspace / "scripts" / "hmk"
     if hmk_script.exists():
         subprocess.run(

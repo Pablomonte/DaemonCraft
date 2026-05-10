@@ -459,14 +459,24 @@ def start_agent(
     max_chat_chars: int | None = None,
     immortal: bool = False,
 ) -> int:
-    """Start the Hermes agent using the native persistent loop. Returns PID."""
+    """Start the Hermes agent loop. Returns PID.
+
+    Two modes (controlled by DC_AUTONOMOUS env var):
+      - DC_AUTONOMOUS=1: autonomous_loop.py (Autonomía Corporal — plan-driven,
+        Gemma execution, finite-state controller)
+      - DC_AUTONOMOUS unset/0: agent_loop.py (legacy heartbeat injector)
+    """
     from agents.workspace import get_agent_venv_python
 
     lf = log_file(cast_name, agent_name, "agent")
     out = open(lf, "a")
 
     hermes_venv_python = get_agent_venv_python(agent_name)
-    agent_loop_script = str(SCRIPT_DIR / "agent_loop.py")
+
+    # Choose loop script based on DC_AUTONOMOUS flag
+    autonomous = os.environ.get("DC_AUTONOMOUS") == "1"
+    loop_script = "autonomous_loop.py" if autonomous else "agent_loop.py"
+    agent_loop_script = str(SCRIPT_DIR / loop_script)
 
     standby_file = str(get_pid_dir(cast_name) / f"{agent_name}_standby")
 
@@ -491,7 +501,12 @@ def start_agent(
     if immortal:
         env["DAEMON_GUARDIAN"] = "1"
 
-    log(f"Starting persistent agent for {agent_name}...", cast_name)
+    # Autonomous loop: faster tick interval (7s, not 30s)
+    if autonomous and interval == 30:
+        interval = 7
+        log(f"DC_AUTONOMOUS=1 → reducing interval from 30s to {interval}s", cast_name)
+
+    log(f"Starting {'autonomous' if autonomous else 'heartbeat'} loop for {agent_name} ({loop_script})...", cast_name)
     proc = subprocess.Popen(
         [hermes_venv_python, agent_loop_script, "--prompt", "Begin.", "--interval", str(interval)],
         env=env,
@@ -500,7 +515,7 @@ def start_agent(
         stdin=subprocess.DEVNULL,
     )
     write_pid(cast_name, agent_name, "agent", proc.pid)
-    log(f"Agent {agent_name} started (PID {proc.pid})", cast_name)
+    log(f"Agent {agent_name} started (PID {proc.pid}, mode={'autonomous' if autonomous else 'heartbeat'})", cast_name)
     return proc.pid
 
 
