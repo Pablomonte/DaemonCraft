@@ -198,9 +198,17 @@ These changes are global (affect all platforms) but are backward-compatible.
 - Idle heartbeat: world_state injection via Gemma every ~30s when no plan active
 
 ### Integration
-- `daemoncraft.py`: set `DC_AUTONOMOUS=1` to launch `autonomous_loop.py` instead of `agent_loop.py`
+- `daemoncraft.py`: launches `agent_loop.py --interval 7` (single mode, plan-driven)
 - `workspace.py`: creates `workspace/` subdir, writes `EMBODIED_SERVICE_URL` and `PLAN_FILE` to `.env`
-- Default mode: heartbeat injector (unchanged). Opt-in to autonomous via env var.
+- `cmd_daemon`: assumes workspace already bootstrapped by `cmd_start`; only restarts crashed processes
+- `cmd_update`: backs up `plan.json` from `~/agents/<name>/` before wipe, restores after `cmd_start`
+
+**⚠️ Template update rule:** Every code change that affects the agent runtime (env vars, directory structure, loop behavior, SOUL composition) must be verified against ALL paths that create or update agent workspaces:
+  1. `cmd_start` — bootstrap_agent_workspace + SOUL composition → `~/agents/<name>/`
+  2. `cmd_update` — wipe + cmd_start + restore plan.json
+  3. `cmd_daemon` — crash restart (assumes workspace exists)
+  4. `workspace.py` — bootstrap_agent_workspace (creates .env, config.yaml, venv, workspace/)
+  If a change touches one path, verify the others still produce a working agent. Never leave dead code paths that reference old directory structures (~/.hermes/profiles/).
 
 ### Wake-up triggers (Steve escalation)
 - `plan_complete` — all steps done
