@@ -48,6 +48,7 @@ class PlanState(Enum):
     ESCALATED = "escalated"
     REPLANNING = "replanning"
     COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
 
 class DangerLevel(Enum):

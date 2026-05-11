@@ -147,11 +147,27 @@ def remove_pid(cast_name: str, agent_name: str, kind: str):
 
 
 def is_alive(pid: int) -> bool:
+    """Check if a process is alive and not a zombie."""
     try:
         os.kill(pid, 0)
-        return True
     except (OSError, ProcessLookupError):
         return False
+    # Detect zombies: /proc/{pid}/stat state field is 'Z'
+    try:
+        stat_path = f"/proc/{pid}/stat"
+        with open(stat_path) as f:
+            stat = f.read().strip()
+        # The state is the character after the closing parenthesis of the command name.
+        # Format: pid (comm) state ...
+        # We find the last ')' and check the next non-space character.
+        rparen = stat.rfind(')')
+        if rparen != -1:
+            state = stat[rparen + 1:].strip()[0]
+            if state == 'Z':
+                return False
+    except (OSError, IndexError):
+        pass
+    return True
 
 
 # ── Profile Setup ──────────────────────────────────────────────────────────────────
