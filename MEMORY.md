@@ -1001,3 +1001,32 @@ curl -s http://localhost:3001/health && curl -s http://localhost:3002/health
 # Check for recent errors across all agents (last 5 min)
 journalctl --user --since '5 minutes ago' | grep -iE 'error|fail' | grep -vE 'providers.minimax|ollama_call_done|intent_done'
 ```
+
+## Modpack / Prism Launcher — NVIDIA GPU Routing (2026-05-11)
+
+**Problem:** Prism Launcher (Flatpak) renders Minecraft on Intel UHD Graphics instead of NVIDIA RTX 2060, giving ~5-7 FPS even on low settings.
+
+**Root cause:** Flatpak sandbox does not inherit host PRIME environment variables. Minecraft's OpenGL renderer defaults to the integrated GPU.
+
+**Solution:** Set Flatpak override for Prism Launcher to force NVIDIA PRIME offload:
+
+```bash
+flatpak override --user --env=__NV_PRIME_RENDER_OFFLOAD=1 --env=__GLX_VENDOR_LIBRARY_NAME=nvidia --env=__VK_LAYER_NV_optimus=NVIDIA_only org.prismlauncher.PrismLauncher
+```
+
+**Verify:**
+```bash
+flatpak override --user --show org.prismlauncher.PrismLauncher
+```
+Should show the three env vars under `[Environment]`.
+
+**Check in-game:** Launch instance, look for log line:
+```
+OpenGL renderer: NVIDIA GeForce RTX 2060/PCIe/SSE2
+```
+
+**Notes:**
+- `prime-select` is NOT installed on this system — the override is the cleanest path.
+- Laptop is always plugged in (no battery), so disabling Intel/Optimus power-saving is fine.
+- Do NOT add `[EnvironmentVariables]` to `instance.cfg` — Prism Launcher does not use that format. Flatpak override is the correct layer.
+- Shader pack (Complementary Reimagined) should be toggled via `K` in-game once NVIDIA is confirmed working.
