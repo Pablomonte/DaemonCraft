@@ -22,6 +22,11 @@ services:
       INIT_MEMORY: "8G"
       MAX_MEMORY: "12G"
 
+      # --- JVM GC ---
+      # ZGC (Java 21+) for low-latency concurrent collection.
+      # Addresses Distant Horizons warning about G1GC stuttering.
+      JVM_XX_OPTS: "-XX:+UseZGC -XX:+ZGenerational"
+
       # --- Gameplay / Dev Settings ---
       ONLINE_MODE: "false"
       # easy permits hostile mob spawns (rolemaster narrative tension) while
