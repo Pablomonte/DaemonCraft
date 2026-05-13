@@ -869,6 +869,7 @@ def cmd_daemon(cast_name: str, cast: dict, mc_host: str, mc_port: int):
 
     log(f"Daemon mode for '{cast_name}' started. Press Ctrl+C to stop.", cast_name)
     running = True
+    restart_tracker = {}  # name -> [(timestamp, count)]
 
     def handle_sigint(signum, frame):
         nonlocal running
@@ -905,12 +906,26 @@ def cmd_daemon(cast_name: str, cast: dict, mc_host: str, mc_port: int):
             if not agent_alive:
                 if agent_pid:
                     remove_pid(cast_name, name, "agent")
-                log(f"Agent {name} down, restarting...", cast_name)
-                try:
-                    start_agent(cast_name, name, port, immortal=agent.get("immortal", False))
-                except SystemExit:
-                    pass
-                time.sleep(5)
+                # Smart restart tracking: if an agent crashes >3 times in 5 min,
+                # stop restarting and log alert instead of looping forever.
+                now = time.time()
+                tracker = restart_tracker.setdefault(name, {"count": 0, "first": now, "alerted": False})
+                if now - tracker["first"] > 300:
+                    tracker["count"] = 0
+                    tracker["first"] = now
+                    tracker["alerted"] = False
+                tracker["count"] += 1
+                if tracker["count"] > 3 and not tracker["alerted"]:
+                    tracker["alerted"] = True
+                    log(f"ALERT: Agent {name} has crashed {tracker['count']} times in 5min. Stopping auto-restart. Check logs.", cast_name)
+                    continue
+                if tracker["count"] <= 3:
+                    log(f"Agent {name} down (crash #{tracker['count']}), restarting...", cast_name)
+                    try:
+                        start_agent(cast_name, name, port, immortal=agent.get("immortal", False))
+                    except SystemExit:
+                        pass
+                    time.sleep(5)
 
         # Sleep 60s in 1s increments for responsive shutdown
         for _ in range(60):

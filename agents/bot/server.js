@@ -1746,6 +1746,10 @@ const ACTIONS = {
     b.pathfinder.setGoal(null);
     try { b.stopDigging(); } catch {}
     if (b.pvp) try { b.pvp.stop(); } catch {}
+    // CRITICAL: Clear all control states to prevent phantom movement/digging
+    // when a new action starts. This prevents goals from previous actions
+    // from interfering with the current one.
+    b.clearControlStates();
     return { result: 'Stopped all actions.' };
   },
 

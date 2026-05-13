@@ -997,9 +997,7 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                     turn_in_progress.clear()
                     send_agent_heartbeat(next_turn_in=interval, turn_in_progress=False)
 
-                # Inject body session context into gateway so Steve
-                # has full awareness of what the body did when woken.
-                # Never mentioned in chat — internal context only.
+                # Inject body session context into gateway
                 if body_session:
                     send_heartbeat_context({}, {}, {}, {}, [], body_session=body_session)
 
@@ -1010,6 +1008,18 @@ def run_agent_loop(profile_name: str, initial_prompt: str, interval: int = 7):
                     if backoff > 0:
                         print(f"[loop] Backoff {backoff:.1f}s for step {plan.current.id}", flush=True)
                         time.sleep(backoff)
+
+                # If plan is blocked/escalated after processing, discard it to prevent
+                # infinite restart loops. The agent can create a new plan when needed.
+                if plan.state in (PlanState.BLOCKED, PlanState.ESCALATED):
+                    print(f"[loop] Plan {plan.state.value} — discarding to prevent loop", flush=True)
+                    try:
+                        plan_path = Path.home() / "agents" / os.getenv("MC_USERNAME", "steve").lower() / "workspace" / "plan.json"
+                        if plan_path.exists():
+                            plan_path.unlink()
+                            _log_event("plan_discarded", reason=plan.state.value, goal=plan.goal)
+                    except Exception as e:
+                        print(f"[loop] Failed to discard plan: {e}", flush=True)
 
                 continue
 
