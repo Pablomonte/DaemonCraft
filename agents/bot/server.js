@@ -4093,3 +4093,23 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (err) => {
   log(`Unhandled rejection: ${err}`);
 });
+
+// Graceful shutdown: close Chrome/Puppeteer on SIGTERM/SIGINT to prevent zombie processes
+function cleanupChrome() {
+  log('[Cleanup] Closing Chrome/Puppeteer...');
+  try { viewerPage?.close().catch(() => {}); viewerPage = null; } catch {}
+  try { viewerBrowser?.close().catch(() => {}); viewerBrowser = null; } catch {}
+  try { viewerServer?.close(); viewerServer = null; } catch {}
+}
+
+process.on('SIGTERM', () => {
+  log('SIGTERM received. Cleaning up...');
+  cleanupChrome();
+  httpServer.close(() => process.exit(0));
+});
+
+process.on('SIGINT', () => {
+  log('SIGINT received. Cleaning up...');
+  cleanupChrome();
+  httpServer.close(() => process.exit(0));
+});
