@@ -46,6 +46,7 @@ if str(_AGENTS_DIR) not in sys.path:
 from plan_schema import (
     Plan, PlanState, DangerLevel, VerifyType, load_plan, save_plan,
 )
+from recovery_candidates import maybe_synthesize_substitute
 
 MC_API_URL = os.getenv("MC_API_URL", "http://localhost:3001")
 EMBODIED_SERVICE_URL = os.getenv("EMBODIED_SERVICE_URL", "http://localhost:7790")
@@ -197,14 +198,17 @@ def _log_event(event: str, **fields) -> None:
     print(json.dumps(record, separators=(",", ":")), flush=True)
 
 
-def call_embodied(intent: str, deadline_s: int = 20) -> dict:
+def call_embodied(intent: str, deadline_s: int = 20, previous_error: dict | None = None) -> dict:
     """Call POST /intent on the embodied service. Retries with backoff."""
     last_error = None
     for attempt in range(_MAX_EMBODIED_RETRIES + 1):
-        payload = json.dumps({"intent": intent, "deadline_seconds": deadline_s}).encode("utf-8")
+        payload = {"intent": intent, "deadline_seconds": deadline_s}
+        if previous_error:
+            payload["previous_error"] = previous_error
+        payload_bytes = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             f"{EMBODIED_SERVICE_URL}/intent",
-            data=payload,
+            data=payload_bytes,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
@@ -453,6 +457,51 @@ def process_plan_tick(plan: Plan, now: float) -> tuple[Plan, dict]:
         save_plan(plan)
         return plan, _build_body_session(plan, step, embodied_result, True,
                                          reason, "step_advanced")
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # Recovery layer — two-tier: deterministic synthesis first, then model
+    # recovery via previous_error (Mariano's canonical design).
+    # ═══════════════════════════════════════════════════════════════════════
+    if not passed and step.retries < step.max_retries - 1:
+        # Tier 2a: deterministic candidate synthesis (Fede's evidence:
+        # model is good at SELECTION but bad at SEARCH for place_block).
+        try:
+            status = fetch_bot_status()
+            nearby = fetch_bot_nearby()
+            inv = fetch_bot_inventory()
+            pos = status.get("position", {})
+            bot_xyz = (int(pos.get("x", 0)), int(pos.get("y", 0)), int(pos.get("z", 0)))
+            substitute_intent = maybe_synthesize_substitute(
+                step, embodied_result,
+                bot_position=bot_xyz,
+                nearby_blocks=nearby.get("blocks", nearby.get("nearby_blocks", [])),
+                inventory=inv,
+            )
+            if substitute_intent:
+                _log_event("substitute_synthesised", step_id=step.id,
+                           original_intent=step.intent[:120],
+                           new_intent=substitute_intent[:120])
+                embodied_result = call_embodied(substitute_intent)
+                passed, reason = verify_step(step, embodied_result)
+                _log_event("substitute_verify", step_id=step.id, passed=passed, reason=reason)
+        except Exception as e:
+            _log_event("substitute_synthesis_failed", step_id=step.id, error=str(e))
+
+    if not passed and step.retries < step.max_retries - 1:
+        # Tier 2b: canonical model recovery via previous_error.
+        # Gemma-Andy was trained to replan when previous_error is populated.
+        exec_results = embodied_result.get("execution_results", [])
+        failed = next((r for r in exec_results if not r.get("ok")), None)
+        if failed:
+            previous_error = {
+                "tool": failed.get("tool", "unknown"),
+                "error_type": failed.get("error_type", "other"),
+                "details": failed.get("details", failed.get("error", "unknown")),
+            }
+            _log_event("previous_error_retry", step_id=step.id, previous_error=previous_error)
+            embodied_result = call_embodied(step.intent, previous_error=previous_error)
+            passed, reason = verify_step(step, embodied_result)
+            _log_event("previous_error_verify", step_id=step.id, passed=passed, reason=reason)
 
     step.retries += 1
     if step.exhausted:
