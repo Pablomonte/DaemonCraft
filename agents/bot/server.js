@@ -2193,7 +2193,8 @@ async collect({ block, count = 1 }) {
     for (const [dx, dy, dz] of offsets) {
       const ref = b.blockAt(targetPos.offset(dx, dy, dz));
       if (ref && ref.name !== 'air' && ref.name !== 'cave_air') {
-        await b.placeBlock(ref, new Vec3(-dx, -dy, -dz));
+        // Use _genericPlace instead of placeBlock to avoid blockUpdate timeout
+        await b._genericPlace(ref, new Vec3(-dx, -dy, -dz), { swingArm: 'right', forceLook: true });
         return { result: `Placed ${blockName} at ${x}, ${y}, ${z}` };
       }
     }
@@ -2256,7 +2257,8 @@ async collect({ block, count = 1 }) {
         if (ref && ref.name !== 'air' && ref.name !== 'cave_air') {
           hadSupport = true;
           try {
-            await b.placeBlock(ref, new Vec3(-dx, -dy, -dz));
+            // Use _genericPlace instead of placeBlock to avoid blockUpdate timeout
+            await b._genericPlace(ref, new Vec3(-dx, -dy, -dz), { swingArm: 'right', forceLook: true });
             placed++;
           } catch {
             failed++;
