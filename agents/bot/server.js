@@ -709,6 +709,11 @@ async function createBotImpl() {
       log(`Connected! Spawned at ${fmt(bot.entity.position.x)}, ${fmt(bot.entity.position.y)}, ${fmt(bot.entity.position.z)}`);
 
       // Start prismarine-viewer for screenshot capability
+      // DISABLED: causes Chrome zombie processes that consume 900%+ CPU
+      // when the bot disconnects/restarts. The viewer's WebSocket retry
+      // loop in Chrome headless saturates cores. Re-enable only when
+      // screenshot is actively needed, with proper cleanup.
+      /*
       try {
         const viewerPort = config.api.port + 1000;
         viewerServer = mineflayerViewer(bot, { port: viewerPort, firstPerson: true });
@@ -716,6 +721,7 @@ async function createBotImpl() {
       } catch (err) {
         log(`[Viewer] Failed to start: ${err.message}`);
       }
+      */
 
       resolve(bot);
     });
