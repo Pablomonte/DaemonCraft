@@ -43,12 +43,11 @@ function mapTimeOfDay(timeTicks) {
 export async function composeWorldState({ extra = {}, botUrl = null } = {}) {
   // Issue reads in parallel. /status gives biome, health, hunger, time;
   // /nearby gives blocks + entities (radius 64 to catch players further
-  // out); /inventory gives items; /marks gives remembered_places.
-  const [status, nearby, inventory, marks] = await Promise.all([
+  // out); /inventory gives items.
+  const [status, nearby, inventory] = await Promise.all([
     botGet("/status", botUrl),
     botGet("/nearby?radius=64", botUrl),
     botGet("/inventory", botUrl),
-    botGet("/marks", botUrl).catch(() => null),
   ]);
 
   // status: { position: {x,y,z}, time, health, food, ... }
@@ -147,8 +146,13 @@ export async function composeWorldState({ extra = {}, botUrl = null } = {}) {
   // documented in the integration guide table. Missing fields cause the
   // model to fall back to priors. Including them — even with sane
   // defaults — keeps the input on-distribution.
+  //
+  // AUDIT 2026-05-14: trimmed non-canonical fields to reduce token
+  // overhead while keeping the model on-distribution. Removed:
+  // - remembered_places (v1 has no persistent memory)
+  // - target_positions (always empty {} in v1)
+  // - player_health (bot cannot read remote player health reliably)
   const weather = status?.isRaining ? "rain" : "clear";
-  const remembered_places = (marks && typeof marks === "object") ? marks : {};
 
   const ws = {
     biome: status?.biome ?? "unknown",
@@ -161,10 +165,7 @@ export async function composeWorldState({ extra = {}, botUrl = null } = {}) {
     light_level: typeof status?.light_level === "number" ? status.light_level : (status?.isDay ? 15 : 4),
     nearby_blocks: blockNames,
     nearby_entities: entityNames,
-    player_health: 20, // bot can't reliably read remote player health from Mineflayer
     player_position: playerPos,
-    remembered_places,
-    target_positions: {},
     time_of_day: mapTimeOfDay(status?.time),
     weather,
     zone_owner: "shared",
