@@ -136,15 +136,6 @@ def send_agent_heartbeat(next_turn_in: float | None = None, turn_in_progress: bo
     })
 
 
-def fetch_plan() -> dict:
-    """Fetch the bot's current plan from the bot server."""
-    try:
-        data = _get_json("/plan")
-        return data.get("data", {})
-    except Exception:
-        return {}
-
-
 def fetch_bot_status() -> dict:
     """Fetch bot status (health, position, food, etc.)."""
     try:
@@ -193,7 +184,6 @@ def check_hazards(status: dict) -> str | None:
     if not status:
         return None
     
-    hazards = status.get("hazards", [])
     health = status.get("health", 20)
     max_health = status.get("maxHealth", 20)
     
@@ -201,24 +191,54 @@ def check_hazards(status: dict) -> str | None:
     if health < 5:
         return f"Health critical: {health}/{max_health}"
     
-    # Drowning
-    if status.get("isSubmerged") or "water" in hazards:
+    # Scene hazards (lava, fire) — array of strings like "lava northeast 5m"
+    scene = status.get("scene", {})
+    hazard_strings = scene.get("hazards", [])
+    if hazard_strings:
+        for h in hazard_strings:
+            h_lower = h.lower()
+            if "lava" in h_lower:
+                return f"Lava detected: {h}"
+            if "fire" in h_lower:
+                return f"Fire detected: {h}"
+    
+    # Drowning — isInWater was added to getFullState
+    if status.get("isInWater"):
         return "Bot is submerged in water — drowning risk"
     
-    # Environmental hazards
-    hazard_names = [h.lower() for h in hazards if isinstance(h, str)]
-    if any("lava" in h for h in hazard_names):
-        return "Lava detected nearby"
-    if any("fire" in h for h in hazard_names):
-        return "Fire detected nearby"
-    if any(h in hazard_names for h in ["zombie", "skeleton", "creeper", "spider", "enderman"]):
-        return "Hostile mob detected nearby"
+    # Hostile mobs from nearbyEntities
+    nearby_entities = status.get("nearbyEntities", [])
+    hostile_types = ["zombie", "skeleton", "creeper", "spider", "enderman", "witch", "husk", "drowned", "phantom"]
+    for entity in nearby_entities:
+        entity_type = (entity.get("type") or "").lower()
+        if any(hostile in entity_type for hostile in hostile_types):
+            dist = entity.get("distance", "?")
+            return f"Hostile mob detected: {entity.get('type')} at {dist}m"
     
     return None
 
 
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════
+# Heartbeat loop
+# ═════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+_IDLE_HEARTBEAT_COUNT = 0
+_IDLE_HEARTBEAT_EVERY = 4  # ~28s at 7s interval
+_LAST_HAZARD_ALERT = {}     # hazard_type -> timestamp (cooldown for wake_steve)
+_HAZARD_COOLDOWN_S = 30
+
+
 def wake_steve(reason: str, detail: str = "") -> bool:
-    """Alert Steve (Hermes agent) by sending an emergency heartbeat with the alert."""
+    """Alert Steve (Hermes agent) by sending an emergency heartbeat with the alert.
+    
+    Cooldown: same hazard type is not repeated within _HAZARD_COOLDOWN_S seconds.
+    """
+    now = time.time()
+    hazard_key = reason.lower().replace(" ", "_")
+    last_alert = _LAST_HAZARD_ALERT.get(hazard_key, 0)
+    if now - last_alert < _HAZARD_COOLDOWN_S:
+        return True  # Suppressed by cooldown
+    
     try:
         status = fetch_bot_status()
         nearby = fetch_bot_nearby()
@@ -226,6 +246,8 @@ def wake_steve(reason: str, detail: str = "") -> bool:
         alert = f"ALERT: {reason}. {detail}".strip()
         events = [alert]
         ok = send_heartbeat_context(status, nearby, inventory, {}, events)
+        if ok:
+            _LAST_HAZARD_ALERT[hazard_key] = now
         _log_event("wake_steve_sent", reason=reason, detail=detail, ok=ok)
         return ok
     except Exception as e:
@@ -262,12 +284,23 @@ def call_embodied(intent: str, deadline_s: int = 20, previous_error: dict | None
     return {"ok": False, "_error": f"embodied_service_unreachable: {last_error}"}
 
 
+def fetch_plan() -> dict:
+    """Fetch the bot's current task from /status (legacy /plan endpoint removed)."""
+    try:
+        status = fetch_bot_status()
+        task = status.get("task")
+        if task:
+            return {"goal": task.get("action", ""), "state": task.get("status", "idle"), "current_step": 0}
+        return {}
+    except Exception:
+        return {}
+
+
 chat_event = threading.Event()
 last_chat_time = int(time.time() * 1000)
 message_lock = threading.Lock()
 ws_connected = threading.Event()
 turn_in_progress = threading.Event()
-cancel_event = threading.Event()
 
 STANDBY_FILE = os.getenv("STANDBY_FILE", "")
 
@@ -543,14 +576,6 @@ def _quest_engine_loop():
 def start_quest_engine():
     t = threading.Thread(target=_quest_engine_loop, daemon=True)
     t.start()
-
-
-# ═════════════════════════════════════════════════════════════════════════════════════════════════════════
-# Daemon Guardian (unchanged)
-# ═════════════════════════════════════════════════════════════════════════════════════════════════════════
-
-DAEMON_GUARDIAN_INTERVAL = 5
-_GODMODE_FILE = Path.home() / ".local" / "share" / "daemoncraft" / "rolemaster" / "godmode"
 
 
 _IDLE_HEARTBEAT_COUNT = 0

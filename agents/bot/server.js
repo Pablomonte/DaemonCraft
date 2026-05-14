@@ -1299,6 +1299,7 @@ function getFullState() {
       error: currentTask.error || undefined,
       elapsed_s: currentTask.started ? Math.round((Date.now() - currentTask.started) / 1000) : undefined,
     } : null,
+    isInWater: b.entity.isInWater,
   };
 }
 
