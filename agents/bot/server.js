@@ -4026,6 +4026,19 @@ setInterval(() => {
       }
     }
   }
+  // Detect phantom pathfinder goals when no task is running but bot reports moving
+  if ((!currentTask || currentTask.status !== 'running') && bot.pathfinder && bot.pathfinder.goal) {
+    const old = positionHistory.find(p => Date.now() - p.time > 10000);
+    if (old) {
+      const dist = Math.sqrt((pos.x-old.x)**2+(pos.y-old.y)**2+(pos.z-old.z)**2);
+      if (dist < 2) {
+        try { bot.pathfinder.setGoal(null); } catch {}
+        try { bot.stopDigging(); } catch {}
+        try { bot.clearControlStates(); } catch {}
+        log('Phantom pathfinder goal detected (no running task, 10s no movement) — cleared');
+      }
+    }
+  }
 }, 5000);
 
 // ═══════════════════════════════════════════════════════════════════
