@@ -274,3 +274,38 @@ def get_agent_venv_python(agent_name: str) -> str:
     """Return the path to the agent workspace's venv python."""
     safe_name = agent_name.lower().replace(" ", "-")
     return str(AGENTS_ROOT / safe_name / "venv" / "bin" / "python")
+
+
+def configure_local_agent_env(
+    agent_name: str,
+    port: int,
+    hermes_home: str = "~/.hermes",
+    cast_name: str | None = None,
+) -> None:
+    """Configure MC_API_URL and MC_USERNAME in a local agent's .env.
+
+    For agents that already exist as Hermes profiles (type: local),
+    we don't create an isolated workspace — we just ensure the
+    environment variables point to the correct bot API.
+    """
+    home = Path(hermes_home).expanduser()
+    env_path = home / ".env"
+
+    lines = []
+    if env_path.exists():
+        lines = env_path.read_text().splitlines()
+
+    # Update MC_API_URL and MC_USERNAME, keeping other lines intact
+    new_lines = [ln for ln in lines if not ln.startswith("MC_API_URL=")]
+    new_lines.append(f"MC_API_URL=http://localhost:{port}")
+
+    new_lines = [ln for ln in new_lines if not ln.startswith("MC_USERNAME=")]
+    new_lines.append(f"MC_USERNAME={agent_name}")
+
+    # Ensure EMBODIED_SERVICE_URL is present for gAndy integration
+    has_embodied = any(ln.startswith("EMBODIED_SERVICE_URL=") for ln in new_lines)
+    if not has_embodied:
+        new_lines.append("EMBODIED_SERVICE_URL=http://localhost:7790")
+
+    env_path.write_text("\n".join(new_lines) + "\n")
+    _log(f"Configured local env: {env_path} (port {port})", cast_name)

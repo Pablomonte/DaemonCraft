@@ -570,12 +570,35 @@ def cmd_start(cast_name: str, cast: dict, mc_host: str, mc_port: int):
     for agent in agents:
         name = agent["name"]
         port = agent["port"]
+        agent_type = agent.get("type", "cast")
 
         # Skip if already running
         bot_pid = read_pid(cast_name, name, "bot")
         agent_pid = read_pid(cast_name, name, "agent")
         if bot_pid and is_alive(bot_pid) and agent_pid and is_alive(agent_pid):
             log(f"{name} already running (bot {bot_pid}, agent {agent_pid})", cast_name)
+            continue
+
+        if agent_type == "local":
+            # Local agent: already exists as a Hermes profile.
+            # Don't create workspace, don't start gateway, don't start agent_loop.
+            # Just configure env and start the bot.
+            from agents.workspace import configure_local_agent_env
+
+            hermes_home = agent.get("hermes_home", "~/.hermes")
+            configure_local_agent_env(
+                agent_name=name,
+                port=port,
+                hermes_home=hermes_home,
+                cast_name=cast_name,
+            )
+
+            # Start bot
+            workspace_dir = str(Path(hermes_home).expanduser())
+            start_bot(cast_name, name, port, mc_host, mc_port, workspace_dir, agent.get("bot_config"))
+
+            log(f"Local agent '{name}' configured (bot only)", cast_name)
+            time.sleep(1)
             continue
 
         # 1. Bootstrap per-agent workspace with its own gateway

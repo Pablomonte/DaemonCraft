@@ -72,6 +72,38 @@ MC_USERNAME=CompAII
 
 Service file: `/home/nicolas/.config/systemd/user/daemoncraft-bot-compaii.service`
 
+## Agent Types in Casts: `cast` vs `local`
+
+The cast system supports two agent types:
+
+| Type | Use case | Workspace | Gateway | Bot | Agent loop |
+|---|---|---|---|---|---|
+| `cast` (default) | Isolated agents with their own config, memory, and autonomy | `~/agents/<name>/` | `hermes-gateway@<name>.service` | Yes | `agent_loop.py` |
+| `local` | Agents that already exist as Hermes profiles (e.g. `compaii`, `riqui`) | None — uses existing `HERMES_HOME` | None — uses existing gateway | Yes | None — controlled by user |
+
+### `type: local` agent
+
+For agents that already live in the system as default Hermes profiles. The cast only:
+1. Configures `MC_API_URL`, `MC_USERNAME`, `EMBODIED_SERVICE_URL` in the profile's `.env`
+2. Starts the bot server (`node server.js`)
+3. Does NOT create workspace, gateway, or agent_loop
+
+**Example cast config:**
+```yaml
+agents:
+  - name: CompAII
+    type: local
+    hermes_home: ~/.hermes
+    port: 3003
+    bot_config:
+      minecraft:
+        host: localhost
+        port: 25565
+        auth: offline
+```
+
+**Implementation:** `configure_local_agent_env()` in `agents/workspace.py`
+
 ## Hermes Agent Integration — Development Workflow
 
 When DaemonCraft features require changes to `hermes-agent` (gateway adapter, toolsets, platform config), follow this workflow to avoid breaking the running gateway or your CLI sessions.
