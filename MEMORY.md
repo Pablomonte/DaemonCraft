@@ -1050,6 +1050,22 @@ Mineflayer-pathfinder v2.4.5 has a bug where `allowSprinting = true` causes the 
 
 Without backporting, `daemoncraft.py update companion` wipes and regenerates workspaces from templates, losing ALL runtime changes. This caused repeated regressions on 2026-05-10.
 
+## DaemonCraft Canonical Architecture Notes
+
+### CompAII Role
+CompAII = "guardian del loop" (end-to-end monitoring). Expected to proactively watch bots, agent loops, embodied service, plans, detect anomalies, and take corrective action without being asked.
+
+### Gemma-Andy Architecture (from Mariano's INTEGRATION_OPTIONS.md)
+- Embodied service must be FAIL-FAST on first tool_call failure
+- Consumer (Hermes agent_loop.py) handles retry via previous_error
+- Two-tier recovery: Tier 2a = deterministic synthesis (recovery_candidates.py) for place_block SEARCH failures; Tier 2b = previous_error model recovery for cases where Gemma-Andy CAN replan (goto stuck, etc.)
+
+### Terminology Debt
+`agent_loop.py` still accepts `--profile` argument, but this is pre-migration terminology from when agents shared a Hermes environment. Each agent now has its own isolated `~/agents/<name>/` workspace. `--profile` should be considered deprecated. If we see it in new tooling or docs, it's a signal of legacy code or missed migration.
+
+### Dispatcher Behavior
+compaii tasks in `triage` for safety — ready auto-spawns. Verified 2026-05-08: compaii ready tasks were NOT auto-dispatched (mechanism TBD).
+
 ## Multi-Agent Debugging & Ghost Process Hygiene (2026-05-11)
 
 **Problem we keep having:** "No sabemos qué está inicializado, entra basura, nos volvemos locos." Below are the concrete failure patterns found today and their signatures.
