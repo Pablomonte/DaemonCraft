@@ -642,7 +642,7 @@ Still uses the same JSON schema:
 ## Player Notes
 
 - **Siqui** is a human player (IP 10.10.20.158), not a bot. Connecting via VPN.
-- **NicoElViejoGamer** is a human player.
+- **NicoElViejoGamer** is the human player. Use this exact username for mc_move follow, mc_chat whisper, and any player-targeted commands. (Not "Nico" — the server entity uses the full username.)
 
 ## Agent Architecture (Native Hermes Profiles)
 
