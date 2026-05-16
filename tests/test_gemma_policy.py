@@ -303,6 +303,8 @@ def run_all():
         test_policy_case3_unsafe,
         test_policy_case4_recovery,
         test_policy_case5_out_of_scope,
+        test_strategy_map_returns_correctly,
+        test_needs_setup_for_build,
     ]
     passed = 0
     failed = 0
