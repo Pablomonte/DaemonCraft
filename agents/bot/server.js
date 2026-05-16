@@ -1766,6 +1766,14 @@ const NON_SOLID_BLOCKS = new Set([
   'kelp_plant', 'vine', 'glow_lichen', 'cave_vines', 'cave_vines_plant',
 ]);
 
+// Creative mode detection — Mineflayer bots in creative (gamemode 1) have infinite blocks
+function isCreative(bot) {
+  try {
+    const gm = bot.game?.gameMode ?? bot.player?.gamemode;
+    return gm === 1 || gm === 'creative';
+  } catch { return false; }
+}
+
 const ACTIONS = {
   // ── Movement ─────────────────────────────────────
   async goto({ x, y, z }) {
@@ -2265,7 +2273,16 @@ async collect({ block, count = 1 }) {
   // ── Building ─────────────────────────────────────
   async place({ block: blockName, x, y, z }) {
     const b = ensureBot();
-    const item = b.inventory.items().find(i => i.name === blockName);
+    let item = b.inventory.items().find(i => i.name === blockName);
+    if (!item) {
+      // Creative inventory: set the first hotbar slot to the desired block
+      const mcItem = mcData.itemsByName[blockName];
+      if (mcItem && b.creative) {
+        try { await b.creative.setInventorySlot(36, { id: mcItem.id, count: 1 }); } catch {}
+        await new Promise(r => setTimeout(r, 200));
+        item = b.inventory.items().find(i => i.name === blockName);
+      }
+    }
     if (!item) {
       const hint = inventoryHint(b.inventory.items());
       throw new Error(`No ${blockName} in inventory. ${hint} Collect, craft, or pick up ${blockName} first.`);
@@ -2333,12 +2350,17 @@ async collect({ block, count = 1 }) {
     if (openPositions.length === 0) {
       return { result: `No ${blockName} placed: target area is already occupied.` };
     }
-    const have = itemCounts(b.inventory.items())[blockName] || 0;
-    if (have === 0) {
-      throw new Error(`Can't fill with ${blockName}: none in inventory. ${inventoryHint(b.inventory.items())} Collect, craft, or pick up ${blockName} first.`);
+
+    // Auto-give using bot's own username. Clear slot if inventory full.
+    const name = config.mc.username;
+    let item = b.inventory.items().find(i => i.name === blockName);
+    if (!item) {
+      try { await b.chat(`/clear ${name} terracotta 1`); } catch {}
+      try { await b.chat(`/give ${name} ${blockName} 1`); await new Promise(r => setTimeout(r, 400)); } catch {}
+      item = b.inventory.items().find(i => i.name === blockName);
     }
-    if (have < openPositions.length) {
-      throw new Error(`Can't fill ${openPositions.length} open spaces with ${blockName}: only have ${have}. Need ${openPositions.length - have} more, or reduce the fill area.`);
+    if (!item) {
+      throw new Error(`Can't fill with ${blockName}: none in inventory. ${inventoryHint(b.inventory.items())} Collect, craft, or pick up ${blockName} first.`);
     }
 
     let placed = 0;
@@ -4200,6 +4222,11 @@ const httpServer = http.createServer(async (req, res) => {
       if (!actionFn) {
         const available = Object.keys(ACTIONS).join(', ');
         return respond(res, 400, { ok: false, error: `Unknown action "${actionName}". Available: ${available}` });
+      }
+
+      // Reject concurrent synchronous actions to prevent pathfinder goal races
+      if (actionInProgress) {
+        return respond(res, 409, { ok: false, error: `Action already in progress. Wait or POST /task/cancel first.`, state: briefState() });
       }
 
       actionInProgress = true;
