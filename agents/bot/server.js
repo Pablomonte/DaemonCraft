@@ -1894,41 +1894,33 @@ async collect({ block, count = 1 }) {
       }
     }
 
-    // If we're underground (solid blocks at head level), pillar up to surface.
-    // Check: is there a solid block 2 blocks above us? If yes, we're underground.
-    const headY = Math.floor(b.entity.position.y) + 1;
-    const headBlock = b.blockAt(new Vec3(Math.floor(b.entity.position.x), headY, Math.floor(b.entity.position.z)));
-    const isUnderground = headBlock && headBlock.name !== 'air' && headBlock.name !== 'cave_air';
-    if (isUnderground) {
-      log(`[collect] Underground at y=${Math.floor(b.entity.position.y)} — pillaring up`);
-      const pillarBlock = b.inventory.items().find(i =>
-        i.name.includes('terracotta') || i.name.includes('dirt') || i.name.includes('cobblestone'));
-      if (pillarBlock) {
-        await b.equip(pillarBlock, 'hand');
-        // Pillar until there's open sky above
-        for (let safety = 0; safety < 30; safety++) {
-          const curX = Math.floor(b.entity.position.x);
-          const curY = Math.floor(b.entity.position.y);
-          const curZ = Math.floor(b.entity.position.z);
-          // Check if head space is clear
-          const above = b.blockAt(new Vec3(curX, curY + 2, curZ));
-          if (!above || above.name === 'air' || above.name === 'cave_air') break;
-          // Place block under feet and jump
-          const below = b.blockAt(new Vec3(curX, curY - 1, curZ));
-          if (!below || below.name === 'air' || below.name === 'cave_air') {
-            const refBlock = b.blockAt(new Vec3(curX, curY - 2, curZ));
-            if (refBlock) {
-              await b._genericPlace(refBlock, new Vec3(0, 1, 0), { swingArm: 'right', forceLook: true });
-              await sleep(200);
-            }
+    // If we're below surface level, pillar up.
+    // Check: find the highest solid block Y within 3 blocks horizontally.
+    // If we're more than 1 block below it, we're in a depression.
+    const curX = Math.floor(b.entity.position.x);
+    const curY = Math.floor(b.entity.position.y);
+    const curZ = Math.floor(b.entity.position.z);
+    let maxGroundY = curY;
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        // Scan from top to bottom: find the highest solid block
+        for (let dy = curY + 5; dy >= curY; dy--) {
+          const block = b.blockAt(new Vec3(curX + dx, dy, curZ + dz));
+          if (block && block.name !== 'air' && block.name !== 'cave_air' && block.name !== 'leaf_litter' && block.name !== 'dead_bush' && block.name !== 'short_grass') {
+            if (dy > maxGroundY) maxGroundY = dy;
+            break;
           }
-          b.setControlState('jump', true);
-          await sleep(250);
-          b.setControlState('jump', false);
-          await sleep(100);
         }
-        b.clearControlStates();
-        log(`[collect] Pillaring done — now at y=${Math.floor(b.entity.position.y)}`);
+      }
+    }
+    const depth = maxGroundY - curY;
+    if (depth > 1) {
+      log(`[collect] In depression ${depth} blocks deep (surface at y=${maxGroundY}) — pathfinding up`);
+      try {
+        await b.pathfinder.goto(new goals.GoalNear(curX, maxGroundY, curZ, 3));
+        log(`[collect] Climbed back to y=${Math.floor(b.entity.position.y)}`);
+      } catch (err) {
+        log(`[collect] Could not pathfind to surface: ${err.message}`);
       }
     }
 
