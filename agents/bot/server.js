@@ -1847,23 +1847,24 @@ async collect({ block, count = 1 }) {
       : `No ${block} found within 64 blocks of ${pos.x}, ${pos.y}, ${pos.z}. Move to a better area or search for a different resource.`);
   }
 
-    // Filter + sort: work top-to-bottom like Baritone, never create deep shafts.
-    // Sort by Y descending so we mine the highest layer first.
+    // Filter: only mine blocks at or above our feet level. Never dig downward —
+    // pathfinder can't climb vertical walls out of a self-created pit.
     const botPos = b.entity.position;
-    const startGroundY = Math.floor(botPos.y);
     const botFeet = Math.floor(botPos.y) - 1;
 
-    const safeRaw = found.filter(pos => {
+    const safe = found.filter(pos => {
+      // Skip blocks directly under our feet
       if (Math.abs(pos.x - Math.floor(botPos.x)) < 1 &&
           Math.abs(pos.z - Math.floor(botPos.z)) < 1 &&
           pos.y === botFeet) return false;
+      // Never dig below feet level
+      if (pos.y < botFeet) return false;
       return true;
-    });
+    }).sort((a, b) => b.y - a.y); // highest first
 
-    // Sort by Y descending (mine top layer first)
-    const safe = safeRaw.sort((a, b) => b.y - a.y);
-
-    if (safe.length === 0) throw new Error(`Found ${found.length} ${block}, but none are safe. Move to a different spot.`);
+    if (safe.length === 0) throw new Error(
+      `Found ${found.length} ${block}, but all are below your feet. ` +
+      `Move to lower ground or walk to where the ${block} is at eye level or above.`);
 
     let collected = 0;
     for (const pos of safe.slice(0, batchSize)) {
@@ -1891,36 +1892,6 @@ async collect({ block, count = 1 }) {
         await sleep(200);
       } catch (err) {
         log(`[collect] Error mining ${block} at ${pos.x},${pos.y},${pos.z}: ${err.message}`);
-      }
-    }
-
-    // If we're below surface level, pillar up.
-    // Check: find the highest solid block Y within 3 blocks horizontally.
-    // If we're more than 1 block below it, we're in a depression.
-    const curX = Math.floor(b.entity.position.x);
-    const curY = Math.floor(b.entity.position.y);
-    const curZ = Math.floor(b.entity.position.z);
-    let maxGroundY = curY;
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dz = -2; dz <= 2; dz++) {
-        // Scan from top to bottom: find the highest solid block
-        for (let dy = curY + 5; dy >= curY; dy--) {
-          const block = b.blockAt(new Vec3(curX + dx, dy, curZ + dz));
-          if (block && block.name !== 'air' && block.name !== 'cave_air' && block.name !== 'leaf_litter' && block.name !== 'dead_bush' && block.name !== 'short_grass') {
-            if (dy > maxGroundY) maxGroundY = dy;
-            break;
-          }
-        }
-      }
-    }
-    const depth = maxGroundY - curY;
-    if (depth > 1) {
-      log(`[collect] In depression ${depth} blocks deep (surface at y=${maxGroundY}) — pathfinding up`);
-      try {
-        await b.pathfinder.goto(new goals.GoalNear(curX, maxGroundY, curZ, 3));
-        log(`[collect] Climbed back to y=${Math.floor(b.entity.position.y)}`);
-      } catch (err) {
-        log(`[collect] Could not pathfind to surface: ${err.message}`);
       }
     }
 
