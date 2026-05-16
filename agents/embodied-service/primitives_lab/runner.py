@@ -48,6 +48,49 @@ BOT_API = os.getenv("BOT_API_URL", "http://localhost:3001")
 SERVICE_API = os.getenv("EMBODIED_SERVICE_URL", "http://localhost:7790")
 
 
+# ── Bot command helper ────────────────────────────────────────────
+
+def bot_command(cmd: str) -> dict:
+    """Execute a Minecraft command via POST /command on the bot server.
+    Returns {ok, data} or {ok:false, error}."""
+    try:
+        r = requests.post(f"{BOT_API}/command", json={"command": cmd}, timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ── Setup phase ───────────────────────────────────────────────────
+
+def setup_experiment(spec: dict) -> list[str]:
+    """Execute setup steps. Returns log lines."""
+    setup = spec.get("setup", {})
+    if not setup:
+        return ["  [setup] (none)"]
+    log = [f"  [setup] running {len(setup)} step(s)..."]
+    a = setup.get("clear_area")
+    if a:
+        r = bot_command(f"/fill {a['x1']} {a['y']} {a['z1']} {a['x2']} {a['y']} {a['z2']} air replace")
+        log.append(f"  [setup] clear_area: {'ok' if r.get('ok') else r.get('error')}")
+    for item, count in setup.get("give_items", {}).items():
+        r = bot_command(f"/give @p {item} {count}")
+        log.append(f"  [setup] give {item}x{count}: {'ok' if r.get('ok') else r.get('error')}")
+    tp = setup.get("teleport_bot")
+    if tp:
+        r = bot_command(f"/tp CompAII {tp[0]} {tp[1]} {tp[2]}")
+        log.append(f"  [setup] teleport_bot → {tp}: {'ok' if r.get('ok') else r.get('error')}")
+    t = setup.get("set_time")
+    if t:
+        r = bot_command(f"/time set {t}")
+        log.append(f"  [setup] set_time={t}: {'ok' if r.get('ok') else r.get('error')}")
+    w = setup.get("set_weather")
+    if w:
+        r = bot_command(f"/weather {w}")
+        log.append(f"  [setup] set_weather={w}: {'ok' if r.get('ok') else r.get('error')}")
+    return log
+
+
 # ── Health checks ──────────────────────────────────────────────────
 
 def health_check() -> tuple[bool, str]:
@@ -278,6 +321,10 @@ def main():
         ok, warnings = fixture_compatible(fixture, snapshot)
         for w in warnings: print(f"  [fixture-warn] {w}")
     print(f"current bot: pos={snapshot.get('bot_position')} inv={snapshot.get('inventory_flat')}")
+
+    # ── Setup phase ──
+    for line in setup_experiment(spec):
+        print(line)
 
     samples = args.samples or spec["samples_per_variant"]
     variants = spec["variants"]

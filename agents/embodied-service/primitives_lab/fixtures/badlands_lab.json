@@ -1,0 +1,32 @@
+{
+  "comment": "Lab fixture — captured 2026-05-16 from DaemonCraft lab. Bot in badlands biome at Y~122 with player NicoElViejoGamer nearby. Adapted from forest_with_player for our actual world.",
+  "world_state": {
+    "biome": "badlands",
+    "bot_health": 20,
+    "bot_position": [536, 122, -303],
+    "dimension": "overworld",
+    "hazards": [],
+    "hunger": 20,
+    "inventory": {
+      "terracotta": 60,
+      "orange_terracotta": 23,
+      "brown_terracotta": 22,
+      "leaf_litter": 17,
+      "coarse_dirt": 9,
+      "dirt": 1,
+      "oak_log": 1,
+      "cobblestone": 1,
+      "stick": 1
+    },
+    "light_level": 15,
+    "nearby_blocks": ["brown_terracotta", "terracotta", "orange_terracotta", "oak_leaves", "leaf_litter", "coarse_dirt", "oak_log", "dead_bush"],
+    "nearby_entities": ["player"],
+    "player_health": 20,
+    "player_position": [539, 121, -299],
+    "remembered_places": {},
+    "target_positions": {},
+    "time_of_day": "day",
+    "weather": "clear",
+    "zone_owner": "shared"
+  }
+}

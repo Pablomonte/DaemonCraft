@@ -1,0 +1,52 @@
+# 008-lab — Recovery generalization with real-world obstacles (Lab world)
+#
+# Adapted for DaemonCraft lab: tests recovery when coordinates are blocked.
+# Uses our actual badlands terrain context.
+
+id: 008-recovery-gen-lab
+version: lab-v1
+hypothesis: "Gemma-Andy generalizes recovery across obstacle types in badlands terrain"
+fixture: badlands_lab
+samples_per_variant: 3
+
+setup:
+  clear_area: {x1: 533, y: 118, z1: -390, x2: 540, y: 118, z2: -384}
+  give_items: {terracotta: 64, oak_log: 5}
+  teleport_bot: [536, 118, -388]
+  set_time: day
+  set_weather: clear
+
+variants:
+  - id: basic_recovery
+    primitives:
+      intent: "Place 2 terracotta blocks to build a small pillar near your position."
+      previous_error:
+        tool: "place_block"
+        error_type: "bot_action_failed"
+        details: "target space occupied; bot standing there"
+
+  - id: no_material_recovery
+    primitives:
+      intent: "Toss 1 oak_log from inventory to clear space."
+      previous_error:
+        tool: "toss_item"
+        error_type: "bot_action_failed"
+        details: "inventory has 1 oak_log; toss it to free a slot"
+
+  - id: stuck_goto_recovery
+    primitives:
+      intent: "Follow the player named NicoElViejoGamer."
+      previous_error:
+        tool: "goto"
+        error_type: "stuck"
+        details: "bot blocked by terrain; try finding alternate path"
+
+expectations:
+  must_invoke_embodied_plan: true
+  max_elapsed_seconds: 45
+
+metrics_to_capture:
+  - success_rate
+  - latency_p50
+  - tool_call_count
+  - mitigation_rate

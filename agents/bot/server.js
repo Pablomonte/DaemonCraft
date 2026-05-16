@@ -3587,6 +3587,26 @@ const httpServer = http.createServer(async (req, res) => {
         return respond(res, 200, { ok: true, data: { commands: pending } });
       }
 
+      // ── Execute a server command via bot.chat (requires op) ──
+      if (path === '/command' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', () => {
+          try {
+            const { command } = JSON.parse(body || '{}');
+            if (!command || !command.startsWith('/')) {
+              return respond(res, 400, { ok: false, error: 'Missing or invalid command. Must start with /' });
+            }
+            const b = ensureBot();
+            b.chat(command);
+            return respond(res, 200, { ok: true, data: { command } });
+          } catch (e) {
+            return respond(res, 400, { ok: false, error: e.message });
+          }
+        });
+        return;
+      }
+
       if (path === '/scoreboard') {
         // Read a player's score from a scoreboard objective via Mineflayer's native API
         const objective = url.searchParams.get('objective');

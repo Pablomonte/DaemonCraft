@@ -1,0 +1,50 @@
+# 002-lab — Inventory awareness (Lab world)
+#
+# Adapted for DaemonCraft lab: bot has terracotta(60), not oak_planks(40).
+# Hypothesis: Mentioning actual inventory items in the intent prevents fabrication.
+# Player: NicoElViejoGamer at [539, 121, -299], bot at [536, 122, -303].
+#
+# Lab findings (2026-05-16):
+# - implicit "poné 3 bloques acá" → goto + place_block works, but "acá" = random coords
+# - explicit "tenés terracotta(60)" → CONFUSES the model: get_inventory + craft_item, NO place_block
+# - hermes_style English → 2× place_block emitted, but ground has dead_bush → placement fails
+# - PRECONDITION: floor must be cleared before place_block tests; badlands has dead_bush/leaf_litter everywhere
+# - Explicit inventory mention is counterproductive for this model
+
+id: 002-inventory-awareness-lab
+version: lab-v1
+hypothesis: "Explicitly mentioning available terracotta in intent prevents fabricated block references"
+fixture: badlands_lab
+samples_per_variant: 3
+
+setup:
+  clear_area: {x1: 533, y: 118, z1: -390, x2: 540, y: 118, z2: -384}
+  give_items: {terracotta: 64}
+  set_time: day
+  set_weather: clear
+
+variants:
+  - id: implicit_inventory
+    primitives:
+      intent: "poné 3 bloques acá para hacer una columna"
+
+  - id: explicit_inventory
+    primitives:
+      intent: "Poné 3 bloques de terracotta acá para hacer una columna. Tenés terracotta(60) en el inventario, usá esos."
+
+  - id: hermes_style
+    primitives:
+      intent: "Place 3 terracotta blocks in a vertical column at your current position. Use the terracotta already in your inventory."
+
+expectations:
+  must_invoke_embodied_plan: true
+  tool_calls_must_include_any_of: [place_block]
+  tool_calls_must_not_include: [attack_entity, mine_block, mine_blocks]
+  max_elapsed_seconds: 60
+  operational_risk_in: [none, low]
+
+metrics_to_capture:
+  - success_rate
+  - latency_p50
+  - tool_call_count
+  - mitigation_rate

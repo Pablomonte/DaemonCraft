@@ -1,0 +1,45 @@
+# 009-lab — Explicit substitute recovery (Lab world)
+#
+# Adapted for DaemonCraft lab: tests explicit coordinate substitution.
+# Uses terracotta (what we actually have) instead of oak_planks.
+
+id: 009-substitute-recovery-lab
+version: lab-v1
+hypothesis: "Gemma-Andy correctly places blocks at explicitly-substituted coordinates"
+fixture: badlands_lab
+samples_per_variant: 3
+
+setup:
+  clear_area: {x1: 533, y: 118, z1: -390, x2: 540, y: 118, z2: -384}
+  give_items: {terracotta: 64, cobblestone: 10}
+  teleport_bot: [536, 118, -388]
+  set_time: day
+  set_weather: clear
+
+variants:
+  - id: occupied_substitute
+    primitives:
+      intent: "Place 1 terracotta block. If the target is occupied, place it 1 block east instead."
+      previous_error:
+        tool: "place_block"
+        error_type: "bot_action_failed"
+        details: "target space occupied; try adjacent coordinate"
+
+  - id: missing_inventory_substitute
+    primitives:
+      intent: "Place 1 terracotta block near your position. If you don't have the material, use cobblestone from inventory instead."
+      previous_error:
+        tool: "place_block"
+        error_type: "bot_action_failed"
+        details: "missing material"
+
+expectations:
+  must_invoke_embodied_plan: true
+  tool_calls_must_include_any_of: [place_block]
+  max_elapsed_seconds: 45
+  operational_risk_in: [none, low]
+
+metrics_to_capture:
+  - success_rate
+  - latency_p50
+  - tool_call_count

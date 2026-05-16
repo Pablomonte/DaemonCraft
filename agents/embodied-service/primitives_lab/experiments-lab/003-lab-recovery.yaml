@@ -1,0 +1,56 @@
+# 003-lab — Recovery from previous_error (Lab world)
+#
+# Adapted for DaemonCraft lab. Tests whether Gemma-Andy recovers from
+# a stuck/missing-material error by generating a new plan.
+# Player: NicoElViejoGamer, world: badlands, inventory has terracotta(60).
+#
+# Lab findings (2026-05-16):
+# - stuck → goto: scan_nearby + goto, bot reached player. Recovery works. ✓
+# - missing_material → place_block: report_execution_error + retry place_block.
+#   recovery_naive_retry mitigation fires correctly.
+#   BUT placement fails in-world because ground has dead_bush — not a model problem.
+# - No previous_error: place_block clean, 3s. Model is confident without errors.
+
+id: 003-recovery-lab
+version: lab-v1
+hypothesis: "Gemma-Andy replans correctly when previous_error is passed"
+fixture: badlands_lab
+samples_per_variant: 3
+
+setup:
+  clear_area: {x1: 533, y: 118, z1: -390, x2: 540, y: 118, z2: -384}
+  give_items: {terracotta: 64}
+  teleport_bot: [536, 118, -388]
+  set_time: day
+  set_weather: clear
+
+variants:
+  - id: no_previous_error
+    primitives:
+      intent: "Place 1 terracotta block near the bot position."
+
+  - id: stuck_recovery
+    primitives:
+      intent: "Go to the player named NicoElViejoGamer."
+      previous_error:
+        tool: "goto"
+        error_type: "stuck"
+        details: "bot position unchanged for 6 seconds; obstacle in path"
+
+  - id: missing_material_recovery
+    primitives:
+      intent: "Place 1 terracotta block near the bot position."
+      previous_error:
+        tool: "place_block"
+        error_type: "missing_material"
+        details: "no terracotta at target coordinates; inventory has terracotta(60)"
+
+expectations:
+  must_invoke_embodied_plan: true
+  max_elapsed_seconds: 45
+
+metrics_to_capture:
+  - success_rate
+  - latency_p50
+  - tool_call_count
+  - mitigation_rate

@@ -1,0 +1,58 @@
+# 001-lab — Intent verbosity sweep (Lab world)
+#
+# Adapted from 001_intent_verbosity.yaml for our DaemonCraft lab:
+# - Player: NicoElViejoGamer (not Fede3043)
+# - World: badlands at Y~122 (not forest at Y~81)
+# - Bot position: [536, 122, -303], player at [539, 121, -299]
+#
+# Hypothesis: Verbose, context-rich intents reduce fabrication and produce
+# proper navigation plans targeting our actual player.
+#
+# Lab findings (2026-05-16):
+# - "ven aca" → goto works 2/3, simple Spanish is surprisingly effective
+# - "seguime NicoElViejoGamer" → follow works but model adds mine_blocks/craft_item clutter
+# - verbose English → goto emitted but risk=medium, plus chest/craft/toss noise
+# - verbose+constraints → follow only, 3.3s, cleanest result
+# - Narrow allowed_tools is the winning pattern for navigation
+
+id: 001-intent-verbosity-lab
+version: lab-v1
+hypothesis: "Verbose intents targeting NicoElViejoGamer in badlands produce valid navigation plans"
+fixture: badlands_lab
+samples_per_variant: 3
+
+setup:
+  teleport_bot: [540, 118, -390]
+  set_time: day
+  set_weather: clear
+
+variants:
+  - id: terse
+    primitives:
+      intent: "ven aca"
+
+  - id: medium
+    primitives:
+      intent: "seguime NicoElViejoGamer"
+
+  - id: verbose
+    primitives:
+      intent: "Find and approach the player named NicoElViejoGamer. Stop within 3 blocks of them. Avoid hazards along the way."
+
+  - id: verbose_with_constraints
+    primitives:
+      intent: "Find and approach the player named NicoElViejoGamer. Stop within 3 blocks of them."
+      allowed_tools: [scan_nearby, goto, follow, stop_movement, ask_clarification, raise_guardian_event, report_execution_error]
+
+expectations:
+  must_invoke_embodied_plan: true
+  tool_calls_must_include_any_of: [goto, follow]
+  tool_calls_must_not_include: [mine_block, mine_blocks, attack_entity, place_block, fill_volume]
+  max_elapsed_seconds: 30
+  operational_risk_in: [none, low]
+
+metrics_to_capture:
+  - success_rate
+  - latency_p50
+  - tool_call_count
+  - mitigation_rate
