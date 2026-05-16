@@ -198,7 +198,80 @@ def test_execute_multi_step_and():
     print("PASS: execute multi-step → 2 sub-intents with categories")
 
 
-# ─── Main runner ─────────────────────────────────────────────────
+# ── Reference cases at policy layer (Layer 2) ─────────────────────
+def test_policy_case1_positive():
+    p = make_policy()
+    result = p.execute("Help the player gather wood before night.")
+    assert result["policy_handled"] is False
+    assert result["outcome"] == "embodied_ready"
+    assert result["categories"] == ["mining"]
+    assert "mine_block" in result["allowed_tools"][0]
+    assert "ask_clarification" in result["allowed_tools"][0]
+    print("PASS: policy case 1 → mining, narrow tools, signals included")
+
+
+def test_policy_case2_ambiguous_passes_through():
+    p = make_policy()
+    # Exact English phrase from reference case 2; current L3 regex targets
+    # Spanish/colloquial vagueness tokens, so this passes through.
+    result = p.execute("Build it over there.")
+    assert result["policy_handled"] is False
+    assert result["outcome"] == "embodied_ready"
+    assert result["categories"] == ["build"]
+    assert "place_block" in result["allowed_tools"][0]
+    print("PASS: policy case 2 → build, passes through (deixis not in L3 regex)")
+
+
+def test_policy_case2_ambiguous_l3_detected():
+    p = make_policy()
+    # L3 ambiguity detection for canonical vague phrases
+    result = p.execute("Hacé algo entretenido")
+    assert result["policy_handled"] is True
+    assert result["outcome"] == "policy_handled_upstream"
+    assert result["policy_layer"] == "ambiguity"
+    assert "algo" in result["policy_reason"]
+    print("PASS: policy case 2 (L3) → ambiguity detected upstream")
+
+
+def test_policy_case3_unsafe():
+    p = make_policy()
+    result = p.execute("Place TNT next to the village fountain.")
+    assert result["policy_handled"] is False
+    assert result["outcome"] == "embodied_ready"
+    assert result["categories"] == ["build"]
+    # Build category tools: scan, goto, place_block, equip, inventory, signals
+    assert "place_block" in result["allowed_tools"][0]
+    assert "ask_clarification" in result["allowed_tools"][0]
+    # Note: raise_guardian_event is only added to GUARDIAN_AWARE_CATEGORIES
+    # (navigation, combat, default). Build relies on the model's guardian
+    # constraint awareness and the caller's guardian_constraints field.
+    print("PASS: policy case 3 → build, tools narrowed")
+
+
+def test_policy_case4_recovery():
+    p = make_policy()
+    result = p.execute("Go to the player.")
+    assert result["policy_handled"] is False
+    assert result["outcome"] == "embodied_ready"
+    assert result["categories"] == ["navigation"]
+    assert "goto" in result["allowed_tools"][0]
+    assert "raise_guardian_event" in result["allowed_tools"][0]
+    print("PASS: policy case 4 → navigation, recovery tools available")
+
+
+def test_policy_case5_out_of_scope():
+    p = make_policy()
+    result = p.execute("Tell me a joke.")
+    assert result["policy_handled"] is True
+    assert result["outcome"] == "policy_handled_upstream"
+    assert result["policy_layer"] == "scope"
+    assert "joke" in result["policy_reason"]
+    assert result["sub_intents"] == []
+    assert result["allowed_tools"] == []
+    print("PASS: policy case 5 → scope blocked upstream")
+
+
+# ── Main runner ──────────────────────────────────────────────
 def run_all():
     tests = [
         test_l2_out_of_scope_joke,
@@ -224,6 +297,12 @@ def run_all():
         test_execute_empty_intent,
         test_execute_mining_with_tools,
         test_execute_multi_step_and,
+        test_policy_case1_positive,
+        test_policy_case2_ambiguous_passes_through,
+        test_policy_case2_ambiguous_l3_detected,
+        test_policy_case3_unsafe,
+        test_policy_case4_recovery,
+        test_policy_case5_out_of_scope,
     ]
     passed = 0
     failed = 0

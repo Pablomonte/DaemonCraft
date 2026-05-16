@@ -98,3 +98,80 @@ describe("dispatcher", () => {
     });
   });
 });
+
+// ── Layer 4: Executor semantic tests ───────────────────────────────────────
+// Q1 fix from Mariano's methodology: execution_results[].ok must reflect
+// actual embodied success in the world, not merely tool emission or HTTP 200.
+//
+// These tests verify the mapping from bot responses to ok semantics.
+// Supported-tool dispatch paths (which hit the live bot via HTTP) are
+// covered indirectly through foldBotResponse; signal/unsupported paths
+// are covered directly through dispatch().
+
+describe("executor semantic tests (Layer 4: ok reflects embodied success, not tool emission)", () => {
+  it("signal tool dispatch → ok=true (handled upstream, no embodied execution)", async () => {
+    _reset();
+    const r = await dispatch({ name: "raise_guardian_event", arguments: { category: "test" } });
+    assert.equal(r.ok, true);
+    assert.equal(r.signal, true);
+    assert.equal(r.tool, "raise_guardian_event");
+  });
+
+  it("unsupported tool dispatch → ok=false (tool_not_implemented)", async () => {
+    _reset();
+    const r = await dispatch({ name: "plant_crop", arguments: { crop: "wheat" } });
+    assert.equal(r.ok, false);
+    assert.equal(r.error_type, "tool_not_implemented");
+    assert.equal(r.tool, "plant_crop");
+  });
+
+  it("hallucinated tool dispatch → ok=false (tool_not_canonical)", async () => {
+    _reset();
+    const r = await dispatch({ name: "do_magic", arguments: {} });
+    assert.equal(r.ok, false);
+    assert.equal(r.error_type, "tool_not_canonical");
+    assert.equal(r.tool, "do_magic");
+  });
+
+  it("bot soft failure (partial yield) → ok=false even with HTTP 200", () => {
+    const out = foldBotResponse({
+      ok: true, status: 200,
+      body: { ok: true, result: "Mined 1/3 oak_log. Have 1 oak_log in inventory." },
+    });
+    assert.equal(out.ok, false);
+    assert.equal(out.error_type, "bot_soft_failure");
+    assert.match(out.details, /1\/3/);
+  });
+
+  it("bot full success (complete yield) → ok=true with HTTP 200", () => {
+    const out = foldBotResponse({
+      ok: true, status: 200,
+      body: { ok: true, result: "Mined 5/5 oak_log. Have 5 oak_log in inventory." },
+    });
+    assert.equal(out.ok, true);
+    assert.equal(out.data.result, "Mined 5/5 oak_log. Have 5 oak_log in inventory.");
+  });
+
+  it("bot hard failure (HTTP 500) → ok=false with bot_action_failed", () => {
+    const out = foldBotResponse({
+      ok: false, status: 500,
+      body: { error: "Bot movement pathfinder timeout" },
+    });
+    assert.equal(out.ok, false);
+    assert.equal(out.error_type, "bot_action_failed");
+    assert.match(out.details, /timeout/);
+  });
+
+  it("detectSoftFailure returns null for genuine success strings", () => {
+    assert.equal(detectSoftFailure({ result: "Crafted 4 oak_planks." }), null);
+    assert.equal(detectSoftFailure({ result: "Placed oak_planks at 10, 64, -5." }), null);
+    assert.equal(detectSoftFailure({ result: "No items to pick up." }), null);
+  });
+
+  it("detectSoftFailure catches 'Refusing to ...' prefix", () => {
+    const msg = "Refusing to place tnt: no_tnt constraint active.";
+    const out = detectSoftFailure({ result: msg });
+    assert.ok(out);
+    assert.match(out, /Refusing to/);
+  });
+});
