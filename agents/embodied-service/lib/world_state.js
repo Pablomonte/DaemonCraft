@@ -141,18 +141,37 @@ export async function composeWorldState({ extra = {}, botUrl = null } = {}) {
         .filter((t) => !ENTITY_NOISE.has(String(t).toLowerCase()))))
     : [];
 
+  // Player health: read from first player entity in nearby response.
+  // Mineflayer bot.players[name].health is the canonical source;
+  // the bot server's /nearby now populates health for player entities.
+  let playerHealth = 20;
+  if (Array.isArray(nearby?.entities)) {
+    const firstPlayer = nearby.entities.find(
+      (e) => e?.kind === 'player' && typeof e?.health === 'number'
+    );
+    if (firstPlayer) playerHealth = firstPlayer.health;
+  }
+
   // Per `raw/gemma-andy/ollama-usage.md` (the post-training reference),
-  // the actual production world_state has 17 fields, not just the 7
-  // documented in the integration guide table. Missing fields cause the
-  // model to fall back to priors. Including them — even with sane
+  // the actual production world_state has 17 fields. Missing fields cause
+  // the model to fall back to priors. Including them — even with sane
   // defaults — keeps the input on-distribution.
   //
-  // AUDIT 2026-05-14: trimmed non-canonical fields to reduce token
-  // overhead while keeping the model on-distribution. Removed:
-  // - remembered_places (v1 has no persistent memory)
-  // - target_positions (always empty {} in v1)
-  // - player_health (bot cannot read remote player health reliably)
+  // AUDIT 2026-05-16: re-added player_health (now available from bot server),
+  // target_positions (always empty in v1), and remembered_places (requires
+  // GET /marks endpoint on bot server).
   const weather = status?.isRaining ? "rain" : "clear";
+
+  // Fetch remembered places if bot server supports GET /marks.
+  let rememberedPlaces = {};
+  try {
+    const marksResp = await botGet("/marks", botUrl);
+    if (marksResp?.marks && typeof marksResp.marks === 'object') {
+      rememberedPlaces = marksResp.marks;
+    }
+  } catch {
+    // /marks endpoint not available — use empty (on-distribution default).
+  }
 
   const ws = {
     biome: status?.biome ?? "unknown",
@@ -165,7 +184,10 @@ export async function composeWorldState({ extra = {}, botUrl = null } = {}) {
     light_level: typeof status?.light_level === "number" ? status.light_level : (status?.isDay ? 15 : 4),
     nearby_blocks: blockNames,
     nearby_entities: entityNames,
+    player_health: playerHealth,
     player_position: playerPos,
+    remembered_places: rememberedPlaces,
+    target_positions: {},
     time_of_day: mapTimeOfDay(status?.time),
     weather,
     zone_owner: "shared",

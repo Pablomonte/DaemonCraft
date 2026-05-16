@@ -1340,7 +1340,9 @@ function getNearby(radius = 32) {
       type: e.name || e.mobType || 'unknown',
       distance: fmt(e.position.distanceTo(pos)),
       position: posObj(e.position),
-      health: e.health,
+      health: e.kind === 'player' && e.username
+        ? (b.players?.[e.username]?.health ?? 20)
+        : e.health,
       kind: e.type, // 'mob', 'player', 'object', etc.
     }));
 
@@ -3408,6 +3410,10 @@ const httpServer = http.createServer(async (req, res) => {
       if (path === '/bot/nearby') {
         const radius = parseInt(url.searchParams.get('radius') || '32');
         return respond(res, 200, { ok: true, data: getNearby(radius) });
+      }
+
+      if (path === '/marks') {
+        return respond(res, 200, { ok: true, marks: loadLocations() });
       }
 
       // ASCII top-down map of surroundings
