@@ -2,7 +2,7 @@
 # Hybrid: Pamplinas world-manipulation + Companion warmth
 #
 # MODEL SELECTOR:
-#   Cloud (default):  model: kimi-k2.6, provider: kimi-coding, base_url: https://api.moonshot.ai/v1
+#   Cloud (default):  model: kimi-for-coding, provider: kimi-coding, base_url: https://api.kimi.com/coding/v1
 #   Local (Ollama):   model: gemma4:e4b-it-q8_0, provider: ollama
 #                     Ollama URL defaults to http://10.10.20.1:11434/v1
 #                     Override via agent.ollama_url or env var OLLAMA_URL
@@ -28,12 +28,12 @@ agents:
     # ollama_url: http://10.10.20.1:11434/v1   # optional override
 
     # --- Cloud config (active) ---
-    model: kimi-k2.6
+    model: kimi-for-coding
     provider: kimi-coding
-    base_url: https://api.moonshot.ai/v1
+    base_url: https://api.kimi.com/coding/v1
 
     always_chat: true
-    interval: 3
+    interval: 7
     extra_toolsets:
       - vision
     gamemode: creative
