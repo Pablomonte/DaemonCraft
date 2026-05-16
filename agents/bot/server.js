@@ -563,6 +563,7 @@ async function createBotImpl() {
         const playerEntry = bot?.players?.[username];
         chatLog.push({ time: Date.now(), from: username, message, whisper: true, world: bot?.game?.dimension || 'unknown', uuid: playerEntry?.uuid || null });
         if (chatLog.length > MAX_LOG) chatLog.shift();
+        broadcastDashboard('chat', chatLog.slice(-30));
         log(`[Whisper] <${username}> ${message}`);
         commandQueue.push({
           time: Date.now(), from: username, command: message,
