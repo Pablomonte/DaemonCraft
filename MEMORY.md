@@ -20,7 +20,10 @@
 - Mariano repo: `https://github.com/Mar-IA-no/deamoncraft-gemma4-andy`, default branch `main`, latest observed commit `ecc1fd57` (`Polish public contest documentation`, pushed 2026-05-15T23:48:35Z).
 - The repo documents `gemma-andy:e4b-v2-2-3-q8_0` as a local/Ollama Gemma 4 E4B-it LoRA body orchestrator for Mineflayer.
 - Reference policy: 5 Hermes-side layers before invoking Gemma-Andy — scope filter, ambiguity detection, surface normalization, multi-step decomposition, and narrow `allowed_tools` per intent category.
-- Contest/debug result framing: the system solved the Tier-1 critical subset 45/45: 35 embodied executions by Gemma-Andy, 10 handled upstream by Hermes without invoking Gemma.
+- Contest/debug result framing: the system solved the Tier-1 critical subset 45/45: 35 embodied executions by Gemma-Andy, 10 handled upstream by Hermes without invoking Gemma. Treat this as roughly “80% Gemma after policy + 20% Hermes upstream handling,” not as raw Gemma reliability.
+- Critical integration lesson from Mariano/Fede: the loop breaks when Hermes sends raw Spanish/colloquial/vague intents or wide tool palettes to Gemma. Gemma-Andy must receive compact English imperative body commands, canonical Minecraft names preserved, inline conditions/fallbacks, 17-field-ish world_state, and narrow per-category `allowed_tools`.
+- Local gap as of this snapshot: `embodied-service` is mostly aligned (user-only Ollama call, schema filtering, fail-fast dispatch), but the live Hermes `embodied_plan` tool does not yet implement Mariano’s upstream policy wrapper. Import target: policy wrapper before POST `/intent`; heartbeat scan should use perception-only tools or deterministic state injection.
+- Policy import audit note: `/home/nicolas/wiki/projects/DaemonCraft/notes/gemma-andy-policy-import-audit-2026-05-16.md`.
 - Do not oversell unresolved areas: schema v2 coverage, recovery with `previous_error`, `pickup_item`/auto-pickup, `pillar_up`/place timing, food-state edge cases, semantic runner checks, and future v2.2.4 dataset rebalance.
 
 **Local documents ingested for this session:**
