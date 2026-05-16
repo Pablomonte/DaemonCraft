@@ -826,8 +826,8 @@
     }
   ],
   "_meta": {
-    "fetched_from": "https://raw.githubusercontent.com/Mar-IA-no/deamoncraft-gemma4-andy/main/schema/tool_schema_v2.json",
-    "fetched_at_utc": "2026-05-09T19:42:12.296511Z",
+    "fetched_from": "https://raw.githubusercontent.com/Mar-IA-no/deamoncraft-gemma4-andy/ecc1fd57/schema/tool_schema_v2.json",
+    "fetched_at_utc": "2026-05-16T11:02:21.253661Z",
     "blob_sha": "5896efa3cfd736f43a071c1378d4612564365ef8",
     "note": "Canonical schema fetched from Mariano repo. Replaces 2026-05-09 placeholder. The _meta block is local annotation, not part of the upstream schema.",
     "consumer_overrides": [
