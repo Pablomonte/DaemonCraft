@@ -58,6 +58,7 @@ import collectBlockPkg from 'mineflayer-collectblock';
 const collectBlock = collectBlockPkg.plugin;
 import minecraftData from 'minecraft-data';
 import { Vec3 } from 'vec3';
+import { encode as encodeMbit } from './lib/mbit.js';
 import {
   CURRENT_CAST,
   buildKnownNames,
@@ -3745,6 +3746,18 @@ const httpServer = http.createServer(async (req, res) => {
           }
         }
         const elapsed = Date.now() - t0;
+        // mBit format encoding
+        const format = url.searchParams.get('format');
+        if (format) {
+          try {
+            const centerX = parseInt(url.searchParams.get('cx')) || undefined;
+            const centerZ = parseInt(url.searchParams.get('cz')) || undefined;
+            const text = encodeMbit(blocks, format, centerX, centerZ);
+            return respond(res, 200, { ok: true, data: { format, text, count: blocks.length, elapsed_ms: elapsed } });
+          } catch (err) {
+            return respond(res, 400, { ok: false, error: `mBit encoding error: ${err.message}` });
+          }
+        }
         return respond(res, 200, { ok: true, data: { blocks, count: blocks.length, elapsed_ms: elapsed } });
       }
 
