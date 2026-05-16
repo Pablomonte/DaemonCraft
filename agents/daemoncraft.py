@@ -774,19 +774,39 @@ You don't need to do anything for this — it happens automatically.
 def cmd_status(cast_name: str, cast: dict):
     from agents.workspace import gateway_is_running
 
+    def default_gateway_is_running() -> bool:
+        try:
+            return subprocess.run(
+                ["systemctl", "--user", "is-active", "--quiet", "hermes-gateway.service"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            ).returncode == 0
+        except Exception:
+            return False
+
     agents = cast.get("agents", [])
     print(f"\n{'Agent':<12} {'Bot PID':<10} {'Bot OK':<8} {'Agent PID':<10} {'Agent OK':<8} {'Gateway':<10}")
     print("-" * 70)
     all_ok = True
     for agent in agents:
         name = agent["name"]
+        agent_type = agent.get("type", "cast")
         bot_pid = read_pid(cast_name, name, "bot")
         agent_pid = read_pid(cast_name, name, "agent")
         bot_ok = "yes" if bot_pid and is_alive(bot_pid) else "NO"
         agent_ok = "yes" if agent_pid and is_alive(agent_pid) else "NO"
-        gw_ok = "yes" if gateway_is_running(name) else "NO"
-        if bot_ok == "NO" or agent_ok == "NO" or gw_ok == "NO":
-            all_ok = False
+        if agent_type == "local":
+            # Local agents reuse an existing Hermes home/profile. They do not
+            # have a hermes-gateway@<name> service; when the default gateway is
+            # active, report that explicitly instead of marking lab unhealthy.
+            gw_ok = "default" if default_gateway_is_running() else "N/A"
+            if bot_ok == "NO" or agent_ok == "NO":
+                all_ok = False
+        else:
+            gw_ok = "yes" if gateway_is_running(name) else "NO"
+            if bot_ok == "NO" or agent_ok == "NO" or gw_ok == "NO":
+                all_ok = False
         print(f"{name:<12} {str(bot_pid or '-'):<10} {bot_ok:<8} {str(agent_pid or '-'):<10} {agent_ok:<8} {gw_ok:<10}")
     print()
     if all_ok:

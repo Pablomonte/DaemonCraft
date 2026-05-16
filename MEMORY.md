@@ -1,5 +1,32 @@
 # DaemonCraft Project Memory
 
+## Current Snapshot — 2026-05-16 (lab/default gateway/Gemma-Andy)
+
+**Runtime ground truth:**
+- Active repo branch: `feat/canonical-loop`.
+- Active cast: `lab` via `~/.config/daemoncraft/cast.conf`.
+- `daemoncraft.service` is the Minecraft server; `daemoncraft-cast.service` manages the single local CompAII bot on `http://localhost:3003`.
+- CompAII is a `type: local` agent using existing `HERMES_HOME=/home/nicolas/.hermes`; no isolated `~/agents/compaii` workspace.
+- The default Hermes gateway is now the canonical gateway for this lab loop: `hermes-gateway.service` runs from `~/.hermes/hermes-agent`, connects to Telegram and to DaemonCraft (`platforms.daemoncraft.extra.bot_api_url=http://localhost:3003`, `bot_username=CompAII`).
+- `hermes-gateway@steve.service` and `hermes-gateway@gandy.service` are stopped and disabled while `CAST=lab` is active; those services target stale ports `:3001`/`:3002` and create reconnect noise.
+- `embodied-service.service` runs Path B on `:7790` with `BOT_API_URL=http://localhost:3003`, `OLLAMA_URL=http://10.10.20.1:11434`, and model `gemma-andy:e4b-v2-2-3-q8_0`.
+
+**Current session objective:** use CompAII's own Minecraft bot as the controlled laboratory body to understand the full loop end-to-end with maximum agency:
+`Telegram/default Hermes gateway -> DaemonCraft platform adapter -> CompAII world session -> mc_* tools / embodied_plan -> bot/server.js -> Minecraft`.
+
+**Architecture rule:** no blind autonomous split-brain. Path 0 (Hermes direct `mc_*` tools) remains the reliable fallback/control path. Path B (Hermes delegates to Gemma-Andy through `embodied_plan` / embodied-service) is introduced only for measured, policy-filtered body primitives.
+
+**Gemma-Andy source state considered for this session:**
+- Mariano repo: `https://github.com/Mar-IA-no/deamoncraft-gemma4-andy`, default branch `main`, latest observed commit `ecc1fd57` (`Polish public contest documentation`, pushed 2026-05-15T23:48:35Z).
+- The repo documents `gemma-andy:e4b-v2-2-3-q8_0` as a local/Ollama Gemma 4 E4B-it LoRA body orchestrator for Mineflayer.
+- Reference policy: 5 Hermes-side layers before invoking Gemma-Andy — scope filter, ambiguity detection, surface normalization, multi-step decomposition, and narrow `allowed_tools` per intent category.
+- Contest/debug result framing: the system solved the Tier-1 critical subset 45/45: 35 embodied executions by Gemma-Andy, 10 handled upstream by Hermes without invoking Gemma.
+- Do not oversell unresolved areas: schema v2 coverage, recovery with `previous_error`, `pickup_item`/auto-pickup, `pillar_up`/place timing, food-state edge cases, semantic runner checks, and future v2.2.4 dataset rebalance.
+
+**Local documents ingested for this session:**
+- `/home/nicolas/Downloads/GOOGLE_SUBMISSION_PACK_kaggle-gallery.md` — Kaggle submission structure, media gallery, and narrative/technical architecture framing.
+- `/home/nicolas/Downloads/HERMES_GEMMA_DEBUG_HANDOFF_2026-05-15.md` — sprint handoff: why Hermes remains narrative/policy head while Gemma-Andy absorbs only measured embodied primitives.
+
 ## CRITICAL: Systemd Service Management
 
 This project runs as a **systemd user service** (`daemoncraft.service`).
@@ -44,13 +71,15 @@ Service file: `/home/nicolas/.config/systemd/user/daemoncraft-cast.service`
 
 ### CompAII Bot Service (Laboratory Mode)
 
-CompAII operates in **laboratory mode**: the bot runs as a persistent systemd service, while the agent (CompAII) controls it directly via `mc_*` tools from the CLI. No `agent_loop.py`, no autonomia — direct human-in-the-loop control.
+CompAII operates in **laboratory mode**: the bot is managed by `daemoncraft-cast.service` (`CAST=lab`) and the default Hermes gateway (`hermes-gateway.service`) is wired to its Bot API on `:3003`. CLI/manual `mc_*` control remains available, but the active lab loop now uses the default gateway so Telegram, DaemonCraft WS heartbeats, and direct tool control exercise the same body.
 
 | Service | Purpose | Port | Status |
 |---|---|---|---|
-| `daemoncraft-bot-compaii.service` | Bot server (Mineflayer API) | 3003 | **Replaced by cast `lab`** |
-| `daemoncraft.service` | Minecraft server (Docker) | 25565 | Active |
-| `daemoncraft-cast.service` | Agent cast launcher | — | **Active (CAST=lab)** |
+| `daemoncraft.service` | Minecraft server | 25565 | Active |
+| `daemoncraft-cast.service` | Lab cast launcher | bot :3003 | Active (`CAST=lab`) |
+| `hermes-gateway.service` | Default Hermes gateway (Telegram + DaemonCraft) | WS to :3003 | Active |
+| `embodied-service.service` | Gemma-Andy Path B bridge | 7790 -> bot :3003 | Active |
+| `hermes-gateway@steve/gandy.service` | Old per-agent gateways | :3001/:3002 | Stopped + disabled in lab |
 
 **Commands:**
 ```bash
