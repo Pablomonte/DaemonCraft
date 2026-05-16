@@ -32,8 +32,34 @@ import {
   DEFAULT_ALLOWED_TOOLS,
   DEFAULT_DEADLINE_SECONDS,
 } from "./lib/defaults.js";
+import { appendFile } from "node:fs/promises";
 
 const PORT = Number(process.env.EMBODIED_SERVICE_PORT || 7790);
+
+// Verification logging — JSONL for later analysis.
+const VERIFICATION_LOG_PATH = process.env.VERIFICATION_LOG_PATH
+  || `${process.env.HOME}/.local/share/daemoncraft/lab/logs/intent_verification.jsonl`;
+
+async function writeVerificationLog(entry) {
+  try {
+    await appendFile(VERIFICATION_LOG_PATH, JSON.stringify(entry) + "\n");
+  } catch (err) {
+    // Fire-and-forget: never fail the intent for logging issues.
+    logEvent({ event: "verification_log_failed", error: err.message });
+  }
+}
+
+function detectLanguage(text) {
+  if (!text) return "en";
+  const lowered = text.toLowerCase();
+  const esTokens = /\b(á|é|í|ó|ú|ñ|traé|miná|andá|vení|acordate|recordá|marcá|volvé|alejate|comé|tirá|equipá|recogé|agarrá|construí|atacá|defendé|seguime|decime|mostrame|hacé|algo|después|luego|jugador|posición|madera|cerca|lejos|aquí|acá|allí|ahí)\b/;
+  const enTokens = /\b(mine|go to|goto|follow|come|approach|eat|get|toss|equip|pick up|build|attack|defend|remember|return|move away|show|tell|player|position|wood|here|there|near|far|after|then)\b/;
+  const hasEs = esTokens.test(lowered);
+  const hasEn = enTokens.test(lowered);
+  if (hasEs && hasEn) return "mixed";
+  if (hasEs) return "es";
+  return "en";
+}
 
 // Load schema once at startup so /health surfaces it.
 const schema = loadSchema();
@@ -106,6 +132,7 @@ async function handleIntent(req, res) {
     previous_error = null,
     deadline_seconds = DEFAULT_DEADLINE_SECONDS,
     bot_api_url = null,
+    _verification_meta = null,
   } = body;
 
   if (!intent || typeof intent !== "string") {
@@ -320,6 +347,58 @@ async function handleIntent(req, res) {
   const elapsed_seconds = (Date.now() - t0) / 1000;
   const all_ok = execution_results.length > 0 && execution_results.every((r) => r.ok);
 
+  // ── Verification block (non-blocking, fire-and-forget log) ─────
+  const firstFailure = execution_results.find((r) => !r.ok) ?? null;
+  const expectedWorldStateKeys = [
+    "biome", "bot_health", "bot_position", "dimension", "hazards",
+    "hunger", "inventory", "light_level", "nearby_blocks", "nearby_entities",
+    "player_position", "time_of_day", "weather", "zone_owner",
+  ];
+  const worldStateKeysPresent = world_state
+    ? expectedWorldStateKeys.filter((k) => k in world_state)
+    : [];
+  const worldStateKeysMissing = world_state
+    ? expectedWorldStateKeys.filter((k) => !(k in world_state))
+    : expectedWorldStateKeys;
+
+  let executionOutcome;
+  if (execution_results.length === 0) {
+    executionOutcome = "no_tools_emitted";
+  } else if (execution_results.every((r) => r.ok)) {
+    executionOutcome = "all_ok";
+  } else if (execution_results.some((r) => r.ok)) {
+    executionOutcome = "partial_failure";
+  } else {
+    executionOutcome = "all_failed";
+  }
+
+  const verification = {
+    intent_original: _verification_meta?.intent_original ?? intent,
+    intent_inferred_language: detectLanguage(intent),
+    allowed_tools_requested: requested,
+    allowed_tools_filtered: filtered_allowed_tools,
+    world_state_keys_present: worldStateKeysPresent,
+    world_state_keys_missing: worldStateKeysMissing,
+    execution_outcome: executionOutcome,
+    first_failure: firstFailure
+      ? { tool: firstFailure.tool, error_type: firstFailure.error_type, details: firstFailure.details }
+      : null,
+  };
+
+  // Structured JSONL log for later analysis.
+  const jsonlEntry = {
+    timestamp: new Date().toISOString(),
+    intent_original: _verification_meta?.intent_original ?? intent,
+    intent_normalized: intent,
+    policy_layer: _verification_meta?.policy_layer ?? "none",
+    category: _verification_meta?.category ?? "unknown",
+    allowed_tools: filtered_allowed_tools,
+    execution_results: execution_results.map((r) => ({ tool: r.tool, ok: r.ok, error_type: r.error_type, details: r.details })),
+    all_ok: all_ok,
+    elapsed_ms: Math.round(elapsed_seconds * 1000),
+  };
+  writeVerificationLog(jsonlEntry);
+
   logEvent({
     event: "intent_done",
     context_id,
@@ -352,6 +431,7 @@ async function handleIntent(req, res) {
     execution_results,
     elapsed_seconds,
     model: ollama_result.model,
+    verification,
   });
 }
 
