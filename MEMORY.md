@@ -2,6 +2,67 @@
 
 ## Current Snapshot — 2026-05-16 (lab/default gateway/Gemma-Andy)
 
+## Session Summary — 2026-05-16 (CompAII deepseek-v4-pro)
+
+### Bugs Fixed (5 commits in feat/canonical-loop)
+
+| Bug | Commit | Root cause | Fix |
+|-----|--------|-----------|-----|
+| Pathfinder race condition | `3819b10` | Watchdog canceled in-flight goals | `actionInProgress` guard |
+| Dispatcher no tool filter | `3819b10` | Gemma generated tools outside allowlist | `allowedTools` enforcement in dispatch() |
+| move_away broken | `3819b10` | `flee()` couldn't parse coordinate strings | Parse "x,y,z" as from target |
+| mine_block self-burial | `60172b0` + `e168e97` | Bot mines at same Y level, falls in | (a) top-first Y-descending sort (b) filter blocks at/below feet (c) pre-dig safety check |
+| equip_item policy failure | `3819b10` | craft_item outside allowed set | Dispatcher enforcement |
+
+### mBit Perception System — IMPLEMENTED
+
+| Component | File | Status |
+|-----------|------|--------|
+| Block→char dictionary | `agents/bot/lib/mbit.js` | ✅ 80+ mappings, 5 formats |
+| GET /blocks endpoint | `agents/bot/server.js` | ✅ Miki + CompAII, ~1ms/volume |
+| Format encoding in endpoint | `agents/bot/server.js` | ✅ `?format=binary\|columns\|rows\|surface\|full` |
+| Hermes tool | `tools/mc_bit_tool.py` (hermes-agent feat/daemoncraft) | ✅ registered |
+| 2D visualizer | `agents/bot/mbit-viz.html` → `/mbit` | ✅ grid + Y-slider + chars/blocks |
+| 3D visualizer | `agents/bot/mbit-viz3d.html` → `/mbit3d` | ✅ Three.js local + chars/blocks/wireframe |
+| WebSocket real-time | server.js blockUpdate → WS broadcast | ✅ no polling |
+| Delta detection | lastText cache in both viz | ✅ skip re-render on no change |
+| Follow-bot default | both viz | ✅ checked by default |
+
+**Visualizers:** `http://localhost:3003/mbit` (2D grid) and `http://localhost:3003/mbit3d` (3D wireframe)
+
+### Architecture Docs Ingested (Mariano's private repo)
+
+All in `~/wiki/projects/DaemonCraft/architecture/`:
+- mariano-CLAUDE.md (architecture split: Hermes/Gemma-Andy/Guardian/Mineflayer)
+- mariano-integration-guide.md (Path B canonical, 68 tools schema)
+- mariano-hermes_policy.py (5-layer policy reference)
+- mariano-PLAN.md (DaemonCraft master plan)
+- mariano-handoff.md (debug sprint 2026-05-15)
+- mariano-hackathon-plan.md
+- mariano-integration-options.md
+- mariano-ollama-usage.md
+- mariano-pitch.md
+- mariano-tools-pending.md
+
+### Architecture Diagram
+
+`~/Projects/DaemonCraft/architecture-diagram.html` — Full SVG of HermesCraft stack (live in browser)
+
+### Tier-1 Experiment Status
+
+8/8 variant types functional with policy_mode="auto". Matches Mariano/Fede pattern:
+- Embodied: follow, goto, equip, mine_block, mark_and_return ✅
+- Upstream: ambiguous, out_of_scope ✅
+- Gap: mine_block in mesa biome requires walking to terrain edge (terracotta below surface)
+
+## mBit Integration Plan
+
+**Next Kanban card:** mBit integration into CompAII decision pattern.
+See card for full spec. Three layers:
+1. Pre-action verification (mc_bit before spatial tools)
+2. Inject into Gemma-Andy world_state (format chosen by policy layer)
+3. Verify loop (perceive→act→perceive→diff)
+
 ## mBit Perception System
 
 **Status:** Library + endpoint + Hermes tool implemented. Pending: integration into decision loop.
