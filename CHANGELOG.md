@@ -5,6 +5,56 @@ resonating with the Pulse.
 
 ---
 
+## 2026-05-16 — mBit Context Integration
+
+### mBit Injected into Gemma-Andy World State
+
+Every `/intent` call now carries `world_state.mbit_context` — text-native voxel
+perception centered on the bot. The embodied service fetches `/blocks` grids
+from the bot server using a deterministic format selection based on intent purpose.
+
+**How to test:**
+```bash
+# Smoke without invoking Gemma-Andy / Ollama:
+cd agents/embodied-service
+npm run smoke:mbit -- "Go to the player safely"
+
+# Focused tests:
+node --test test/world_state.test.js --test-reporter=spec
+```
+
+**Live URLs:**
+- 3D visualizer: http://localhost:3003/mbit3d (cubos contiguos, cámara alineable al ojo del bot)
+- Bot status with yaw/pitch: http://localhost:3003/status
+- mBit raw endpoint: http://localhost:3003/blocks?x1=...&format=surface
+
+**Format selection (deterministic):**
+| Intent purpose | Formats | Volume |
+|---------------|---------|--------|
+| navigation / local_context | binary + surface + rows | bot ±4, ±3 vertical |
+| building | surface + binary + rows | bot ±5, ±4 vertical |
+| mining | surface + columns + rows | bot ±4, ±5 vertical |
+| verification | full 4×4×4 | bot ±1~2 |
+
+Each grid carries its own bounds. Binary uses feet/head bounds so it shows
+walkability, not the ground layer. The context includes a plain-text legend and
+`interpretation_hint` so models without prior mBit training can read it.
+
+**Visualizer fixes shipped in same session:**
+- `fix(mbit-viz3d): preserve scene on no-delta refresh` — ya no desaparece al hacer refresh sin cambios
+- `fix(mbit-viz3d): render cubes as contiguous voxels` — cubos 1×1×1, sin gaps
+- `feat(mbit-viz3d): add bot-eye camera alignment` — checkbox "Align camera", FOV 70, Mira desde los ojos del bot
+
+**Branch:** `feat/canonical-loop`
+**Commit:** `938316a feat(embodied): inject mBit context into world state`
+
+### Player Reference
+
+`NicoElViejoGamer` is the exact Minecraft username. Use this for `mc_move follow`,
+`mc_chat whisper`, etc. (Not "Nico" — the server entity uses the full name.)
+
+---
+
 ## 2026-05-16 — Gemma-Andy Policy Import & World State Completion
 
 ### Architecture
