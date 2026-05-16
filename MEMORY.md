@@ -1173,3 +1173,52 @@ Si sigue con problemas, considerar:
 - Agregar `inventory_summary` al body_session (oak_log count, etc.)
 - Hacer que agent_loop guarde un `current_goal` persistente entre heartbeats
 - Reducir aún más la frecuencia de wake_up si 90s sigue siendo muy agresivo
+
+---
+
+## Current Session State — 2026-05-16 (feat/canonical-loop)
+
+### What we built today
+
+**Canonical bot spawn architecture for local agents:**
+
+Implemented `type: local` support in casts for agents that already exist as Hermes profiles (e.g. CompAII). The cast only configures env vars and starts the bot — no isolated workspace, no new gateway, no agent_loop unless explicitly requested.
+
+**Changes in DaemonCraft repo (branch `feat/canonical-loop`):**
+
+| File | Change |
+|---|---|
+| `agents/daemoncraft.py` | `type: local` detection in `cmd_start()` and `cmd_daemon()`; new `start_local_agent_loop()` for optional autonomous loop; separate restart logic for local vs cast agents |
+| `agents/workspace.py` | New `configure_local_agent_env()` — writes `MC_API_URL`, `EMBODIED_SERVICE_URL`, `MC_USERNAME` to profile's `.env` |
+| `agents/casts/lab.yaml` | New cast: single local agent (CompAII) with `agent_loop: true` |
+| `MEMORY.md` | This section + updated service table + agent type documentation |
+
+**Commits:**
+- `feat: support type: local agents in casts` — workspace.py + daemoncraft.py `cmd_start()` fix
+- `feat: lab cast with CompAII as local agent + optional agent_loop` — lab.yaml + start_local_agent_loop() + cmd_daemon() fix + docs
+
+**Service changes:**
+- `daemoncraft-bot-compaii.service` — DISABLED (replaced by cast `lab`)
+- `daemoncraft-cast.service` — ENABLED, running cast `lab`
+- `~/.config/daemoncraft/cast.conf` — `CAST=lab`
+
+**Active processes under daemoncraft-cast.service:**
+| Process | PID | Role |
+|---|---|---|
+| `python3 agents/daemoncraft.py daemon lab` | 392015 | Supervisor |
+| `node server.js` | 392017 | Bot API (:3003) |
+| `python agent_loop.py --interval 7` | 392073 | Autonomous heartbeat loop |
+
+**Env vars in `~/.hermes/.env`:**
+```
+MC_API_URL=http://localhost:3003
+EMBODIED_SERVICE_URL=http://localhost:7790
+MC_USERNAME=CompAII
+```
+
+**Key design decisions documented:**
+1. `type: local` agents reuse existing HERMES_HOME — no workspace isolation
+2. `agent_loop: true` is OPTIONAL for local agents (default false) — used only for debugging autonomous behavior
+3. Local agent_loop uses deploy-target venv (`~/.hermes/hermes-agent/venv`) and existing HERMES_HOME
+4. Standalone `daemoncraft-bot-*.service` pattern is deprecated in favor of cast-managed bots
+5. Two toolset approach: CompAII uses both `minecraft` (direct mc_* tools) and `embodiment` (delegated via gAndy)
