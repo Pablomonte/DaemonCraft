@@ -741,6 +741,60 @@ async function createBotImpl() {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function fmt(v) { return typeof v === 'number' ? Math.round(v * 10) / 10 : v; }
 
+/** Mine a 1-wide staircase upward to reach targetY.
+ *  Algorithm: face a wall, mine head-height block, mine block above it,
+ *  jump up one step, repeat until at targetY.
+ *  Uses the blocks around the bot — no inventory required.
+ */
+async function climbStaircase(bot, targetY) {
+  const startY = Math.floor(bot.entity.position.y);
+  if (startY >= targetY) return;
+
+  // Pick a direction to dig into (use the bot's current yaw)
+  const yaw = bot.entity.yaw;
+  const dirs = [
+    { dx: 1, dz: 0 },   // south (+x)
+    { dx: 0, dz: 1 },   // west  (+z)
+    { dx: -1, dz: 0 },  // north (-x)
+    { dx: 0, dz: -1 },  // east  (-z)
+  ];
+  const dirIdx = Math.round((yaw % (2 * Math.PI)) / (Math.PI / 2) + 4) % 4;
+  const dir = dirs[dirIdx];
+
+  for (let step = 0; step < (targetY - startY) * 2; step++) {
+    const curX = Math.floor(bot.entity.position.x);
+    const curY = Math.floor(bot.entity.position.y);
+    const curZ = Math.floor(bot.entity.position.z);
+
+    // Mine the block in front at head/chest level
+    const headBlock = bot.blockAt(new Vec3(curX + dir.dx, curY + 1, curZ + dir.dz));
+    if (headBlock && headBlock.name !== 'air' && headBlock.name !== 'cave_air') {
+      await bot.tool.equipForBlock(headBlock);
+      await bot.dig(headBlock, true);
+      await sleep(150);
+    }
+
+    // Mine the block above that (2 blocks up, to make room)
+    const topBlock = bot.blockAt(new Vec3(curX + dir.dx, curY + 2, curZ + dir.dz));
+    if (topBlock && topBlock.name !== 'air' && topBlock.name !== 'cave_air') {
+      await bot.tool.equipForBlock(topBlock);
+      await bot.dig(topBlock, true);
+      await sleep(150);
+    }
+
+    // Jump to the new step
+    bot.setControlState('jump', true);
+    bot.setControlState('forward', true);
+    await sleep(300);
+    bot.setControlState('jump', false);
+    bot.setControlState('forward', false);
+    await sleep(200);
+
+    if (Math.floor(bot.entity.position.y) >= targetY) break;
+  }
+  bot.clearControlStates();
+}
+
 // List visible entities by type with distances
 function nearbyEntitiesHint(bot, filterFn) {
   const visible = Object.values(bot.entities)
@@ -1793,19 +1847,23 @@ async collect({ block, count = 1 }) {
       : `No ${block} found within 64 blocks of ${pos.x}, ${pos.y}, ${pos.z}. Move to a better area or search for a different resource.`);
   }
 
-    // Filter out blocks directly under the bot (never dig straight down!)
-    // Only reject the exact block we're standing on — not adjacent blocks.
+    // Filter + sort: work top-to-bottom like Baritone, never create deep shafts.
+    // Sort by Y descending so we mine the highest layer first.
     const botPos = b.entity.position;
+    const startGroundY = Math.floor(botPos.y);
     const botFeet = Math.floor(botPos.y) - 1;
-    const safe = found.filter(pos => {
-      // Skip the exact block directly below us
-      if (Math.abs(pos.x - Math.floor(botPos.x)) < 1 && 
-          Math.abs(pos.z - Math.floor(botPos.z)) < 1 && 
+
+    const safeRaw = found.filter(pos => {
+      if (Math.abs(pos.x - Math.floor(botPos.x)) < 1 &&
+          Math.abs(pos.z - Math.floor(botPos.z)) < 1 &&
           pos.y === botFeet) return false;
       return true;
     });
 
-    if (safe.length === 0) throw new Error(`Found ${found.length} ${block}, but none are safe to mine (likely directly below the bot). Move to the side, then collect again.`);
+    // Sort by Y descending (mine top layer first)
+    const safe = safeRaw.sort((a, b) => b.y - a.y);
+
+    if (safe.length === 0) throw new Error(`Found ${found.length} ${block}, but none are safe. Move to a different spot.`);
 
     let collected = 0;
     for (const pos of safe.slice(0, batchSize)) {
@@ -1813,36 +1871,64 @@ async collect({ block, count = 1 }) {
         const target = b.blockAt(pos);
         if (!target || target.name !== block) continue;
         await b.tool.equipForBlock(target);
-        // Navigate ABOVE the target block, not beside it — mining from above
-        // prevents the bot from ending up in the hole it just dug.
+
+        // Navigate near the block
         if (b.entity.position.distanceTo(pos) > 4.5) {
-          await b.pathfinder.goto(new goals.GoalNear(pos.x, pos.y + 2, pos.z, 3));
+          await b.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 3));
         }
-        // Safety re-check after pathfinding — reject if the target IS the block
-        // directly under our feet (mining it would make us fall immediately).
+
+        // Safety: never mine the block directly under our feet
         const nowFeet = Math.floor(b.entity.position.y) - 1;
-        const dx = Math.abs(pos.x - Math.floor(b.entity.position.x));
-        const dz = Math.abs(pos.z - Math.floor(b.entity.position.z));
-        if (dx === 0 && dz === 0 && pos.y === nowFeet) {
+        const dxf = Math.abs(pos.x - Math.floor(b.entity.position.x));
+        const dzf = Math.abs(pos.z - Math.floor(b.entity.position.z));
+        if (dxf === 0 && dzf === 0 && pos.y === nowFeet) {
           log(`[collect] Skipping ${block} at ${pos.x},${pos.y},${pos.z} — directly under bot`);
           continue;
         }
-        // Step back if we're too close — mining adjacent blocks at ground level
-        // can collapse the terrain under us.
-        const dist = b.entity.position.distanceTo(new Vec3(pos.x, pos.y, pos.z));
-        if (dist < 2.5) {
-          const away = b.entity.position.clone().subtract(new Vec3(pos.x, pos.y, pos.z)).normalize().scale(3);
-          const safeStand = new Vec3(pos.x, pos.y, pos.z).add(away);
-          try {
-            await b.pathfinder.goto(new goals.GoalNear(safeStand.x, safeStand.y, safeStand.z, 1));
-            await sleep(200);
-          } catch { /* ok if can't step back — proceed anyway */ }
-        }
+
         await b.dig(target, true);
         collected++;
         await sleep(200);
       } catch (err) {
         log(`[collect] Error mining ${block} at ${pos.x},${pos.y},${pos.z}: ${err.message}`);
+      }
+    }
+
+    // If we're underground (solid blocks at head level), pillar up to surface.
+    // Check: is there a solid block 2 blocks above us? If yes, we're underground.
+    const headY = Math.floor(b.entity.position.y) + 1;
+    const headBlock = b.blockAt(new Vec3(Math.floor(b.entity.position.x), headY, Math.floor(b.entity.position.z)));
+    const isUnderground = headBlock && headBlock.name !== 'air' && headBlock.name !== 'cave_air';
+    if (isUnderground) {
+      log(`[collect] Underground at y=${Math.floor(b.entity.position.y)} — pillaring up`);
+      const pillarBlock = b.inventory.items().find(i =>
+        i.name.includes('terracotta') || i.name.includes('dirt') || i.name.includes('cobblestone'));
+      if (pillarBlock) {
+        await b.equip(pillarBlock, 'hand');
+        // Pillar until there's open sky above
+        for (let safety = 0; safety < 30; safety++) {
+          const curX = Math.floor(b.entity.position.x);
+          const curY = Math.floor(b.entity.position.y);
+          const curZ = Math.floor(b.entity.position.z);
+          // Check if head space is clear
+          const above = b.blockAt(new Vec3(curX, curY + 2, curZ));
+          if (!above || above.name === 'air' || above.name === 'cave_air') break;
+          // Place block under feet and jump
+          const below = b.blockAt(new Vec3(curX, curY - 1, curZ));
+          if (!below || below.name === 'air' || below.name === 'cave_air') {
+            const refBlock = b.blockAt(new Vec3(curX, curY - 2, curZ));
+            if (refBlock) {
+              await b._genericPlace(refBlock, new Vec3(0, 1, 0), { swingArm: 'right', forceLook: true });
+              await sleep(200);
+            }
+          }
+          b.setControlState('jump', true);
+          await sleep(250);
+          b.setControlState('jump', false);
+          await sleep(100);
+        }
+        b.clearControlStates();
+        log(`[collect] Pillaring done — now at y=${Math.floor(b.entity.position.y)}`);
       }
     }
 
