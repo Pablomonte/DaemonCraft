@@ -1813,8 +1813,10 @@ async collect({ block, count = 1 }) {
         const target = b.blockAt(pos);
         if (!target || target.name !== block) continue;
         await b.tool.equipForBlock(target);
+        // Navigate ABOVE the target block, not beside it — mining from above
+        // prevents the bot from ending up in the hole it just dug.
         if (b.entity.position.distanceTo(pos) > 4.5) {
-          await b.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 3));
+          await b.pathfinder.goto(new goals.GoalNear(pos.x, pos.y + 2, pos.z, 3));
         }
         // Safety re-check after pathfinding — reject if the target IS the block
         // directly under our feet (mining it would make us fall immediately).
