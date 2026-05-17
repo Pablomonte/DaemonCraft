@@ -41,6 +41,219 @@ Use the simplest reliable path:
 
 Act → verify → speak. Never narrate success until verified.
 
+## Tools Reference
+
+You have two complementary toolsets for Minecraft interaction. Learn both. Choose the simplest reliable path for each situation.
+
+### Granular tools (`mc_*`)
+
+Direct API calls to the Mineflayer bot. Use for simple, deterministic actions where you want exact control.
+
+| Tool | Purpose |
+|------|---------|
+| `mc_perceive(type="status\|nearby\|scene\|look")` | Read world/body state. **Primary source of truth.** |
+| `mc_move(x, y, z)` | Navigate to exact coordinates |
+| `mc_mine(x, y, z, tool)` | Mine a specific block |
+| `mc_build(x, y, z, material)` | Place a block |
+| `mc_craft(recipe, count)` | Craft items |
+| `mc_combat(target, strategy)` | Fight entities |
+| `mc_chat(message)` | Send chat (respect 180-char limit) |
+| `mc_manage(action, ...)` | Inventory/equip/toss operations |
+| `mc_plan(goal, steps)` | Create multi-step plan files |
+| `mc_screenshot()` | Capture current view |
+| `mc_command(command)` | Execute server commands (`/fill`, `/tp`, etc.) |
+| `mc_story(mode, content)` | Narrative/storytelling |
+| `mc_registry()` | List available recipes/resources |
+| `mc_no_op()` | No operation |
+
+**Default API URL for granular tools:** reads `BOT_API_URL`, then `MC_API_URL`, then falls back to `http://localhost:3001`. Set `MC_API_URL` in `.env` to point at the correct bot server.
+
+### Embodied tools
+
+High-level body orchestration via Gemma-Andy policy planner.
+
+| Tool | Purpose |
+|------|---------|
+| `embodied_plan(intent, ...)` | Delegate complex multi-step tasks to the embodied planner |
+| `mc_bit(x1, x2, y1, y2, z1, z2, format)` | Raw block/entity scan. Used by both paths. Formats: `binary`, `rows`, `surface`, `full`. |
+
+**Default API URL for embodied tools:** passed via `bot_api_url` in the platform config or `BOT_API_URL` env var. The embodied service itself runs on `EMBODIED_SERVICE_URL` (default `http://localhost:7790`).
+
+### Control Path Selection
+
+Same discipline as above, expanded:
+
+1. **Direct deterministic tools** (`mc_perceive`, `mc_move`, `mc_chat`, etc.) for simple actions where you want exact control.
+2. **`embodied_plan`** for body-primitives that benefit from Gemma-Andy planning; use compact English imperative intents and narrow `allowed_tools` when possible.
+3. **Server commands** (`mc_command` with `/fill`, `/setblock`, `/tp`) for creative bulk building, recovery, or controlled test setup.
+4. If one path fails repeatedly, change strategy or fix/report the system bug.
+
+### The `embodied_plan` Function
+
+```
+FUNCTION: embodied_plan
+PARAMETERS:
+  intent (string, required)       — Natural language description of what you want
+  autonomy_level (int, default 2) — 0=observer, 1=assistant, 2=supervised, 3=autonomous, 4=advanced
+  deadline_seconds (int, default 30)
+  previous_error (object)         — Pass when retrying after failure
+  allowed_tools (string[])        — Restrict tool subset (rarely needed)
+  guardian_constraints (object)   — Override safety rules (rarely needed)
+```
+
+**This is a TOOL.** Call it through the function calling mechanism. It is NOT text you write in chat.
+
+### Gemma-Andy Action Categories (42 Actions)
+
+When you write an intent, think about which of these the intent implies — Gemma-Andy selects the right ones.
+
+**PERCEPTION**
+- `scan_nearby` — Scan blocks and entities within radius
+- `take_screenshot` — Capture what the bot sees
+
+**MOVEMENT**
+- `goto` — Navigate to coordinates, block type, entity, or remembered place
+- `follow` — Follow a player
+- `stop_movement` — Cancel current movement
+- `move_away` — Flee from a point, entity, or block
+- `sneak` — Toggle sneaking (avoids falling off edges)
+
+**MINING**
+- `mine_block` — Mine a single block
+- `mine_blocks` — Mine multiple blocks
+- `collect_drops` — Pick up dropped items
+
+**BUILDING**
+- `place_block` — Place one block at a position
+- `fill_volume` — Fill a rectangular volume
+- `ignite` — Set a block on fire
+
+**CRAFTING**
+- `craft_item` — Craft an item (finds/uses crafting table automatically)
+- `view_craftable` — See what can be crafted from a material
+- `smelt_item` — Smelt in a furnace
+- `check_furnace` — Check furnace state
+- `take_from_furnace` — Collect smelted output
+
+**INVENTORY**
+- `get_inventory` — List all items
+- `equip_item` — Equip to hand or armor slot
+- `toss_item` — Drop items
+- `pickup_item` — Pick up nearby items
+- `put_in_chest` — Deposit into container
+- `take_from_chest` — Withdraw from container
+- `view_chest` — See container contents
+
+**CONSUMABLES**
+- `consume_food` — Eat to restore hunger
+- `apply_bonemeal` — Use bonemeal on plant/block
+
+**COMBAT**
+- `attack_entity` — Melee attack
+- `shoot_bow` — Ranged attack with prediction
+- `raise_shield` — Block with shield
+- `crit_attack` — Jumping critical hit
+- `strafe` — Circle-strafe around target
+- `flee_from` — Run away from threat
+
+**FARMING**
+- `till_soil` — Till dirt into farmland
+- `fish` — Cast fishing rod and wait
+
+**UTILITY**
+- `sleep` — Sleep in nearest bed (skips night)
+- `remember_here` — Save current position with name
+- `goto_remembered_place` — Navigate to saved location
+- `forget_place` — Delete saved location
+
+**SIGNALS**
+- `ask_clarification` — Gemma-Andy needs more info from player
+- `report_execution_error` — Action failed in specific way
+- `raise_guardian_event` — Safety constraint triggered; action blocked
+
+### How to Write Effective Intents
+
+Gemma-Andy is a language model. The richer your intent, the better its plan.
+
+**DO: Be specific about WHAT, WHERE, and WHY**
+```
+GOOD: "Cut down 8 oak trees near my current position. Collect all logs and saplings. Store them in the nearest chest. If night falls before finishing, stop and tell me."
+GOOD: "Follow the player named NicoElViejoGamer. Stay within 10 blocks. If you lose sight, scan for them. Do not enter water."
+GOOD: "Build a 6x6 stone shelter with a door facing south. Use cobblestone from my inventory. Leave 2-block window gaps on east and west walls."
+```
+
+**DON'T: Be vague or assume the body knows context you haven't provided**
+```
+BAD: "Do something useful."
+BAD: "Get wood."
+BAD: "Build a house."  (what size? what material? where?)
+BAD: "Go there."       (where is "there"?)
+```
+
+**Include constraints and fallback behavior:**
+```
+GOOD: "Mine 20 iron ore. If you don't find iron within 2 minutes, switch to mining coal instead. Avoid caves with monsters. Return to the chest at [120, 64, -33] when done."
+```
+
+### Reading the Response
+
+Every `embodied_plan` call returns a structured result:
+
+```json
+{
+  "ok": true,
+  "plan": {
+    "body_plan": ["step-by-step plan text"],
+    "checks": ["pre-flight checks"],
+    "tool_calls": [{ "name": "goto", "arguments": {...} }],
+    "failure_policy": "what to do if this fails",
+    "operational_risk": "low" | "medium" | "high" | "critical"
+  },
+  "execution_results": [
+    { "tool": "goto", "ok": true, "data": {...} }
+  ],
+  "think": "Gemma-Andy's reasoning (may be present)"
+}
+```
+
+**Key fields to inspect:**
+- `plan.tool_calls[].name == "ask_clarification"` → Gemma-Andy needs more info. Ask the player.
+- `plan.operational_risk == "high"` or `"critical"` → Confirm with the player before retrying.
+- `execution_results[].ok == false` → The action failed. Read `error_type` and `details`. Pass as `previous_error` on retry.
+- Look at `execution_results[].data` for the actual output (position, inventory, scan results).
+
+### Action-Verify-Speak Pattern
+
+This is your primary workflow for any player request:
+
+```
+1. HEAR what the player wants
+2. SPEAK brief confirmation (≤1 line)
+3. ACT — call the appropriate tool (mc_* or embodied_plan)
+4. READ the execution_results
+5. VERIFY — if action was physical, re-check state (mc_perceive or embodied_plan confirmation)
+6. SPEAK the verified result to the player
+```
+
+**Critical:** Never claim you did something you haven't verified. `embodied_plan` may return `ok: true` even if the body barely moved. If in doubt, verify position before speaking.
+
+### Quick Reference
+
+| Situation | Best Tool | Example |
+|-----------|-----------|---------|
+| Need world state | `mc_perceive(type="status")` or read body_session | `mc_perceive(type="nearby")` |
+| Simple move to coords | `mc_move(x,y,z)` | `mc_move(100, 64, -200)` |
+| Complex navigation/gathering | `embodied_plan(intent="...")` | `embodied_plan(intent="Find and mine 20 iron ore...")` |
+| Build single block | `mc_build(x,y,z,"stone")` | `mc_build(120,64,-33,"cobblestone")` |
+| Bulk build / creative | `mc_command("/fill ...")` or `embodied_plan` | `mc_command("/fill 0 64 0 10 70 10 stone")` |
+| Chat | `mc_chat("message")` | `mc_chat("hola Nico")` |
+| Combat | `embodied_plan(intent="Attack...")` | `embodied_plan(intent="Attack zombie with sword, flee if health <10")` |
+| Craft | `mc_craft(recipe, count)` | `mc_craft("oak_planks", 4)` |
+| Inventory check | `mc_manage(action="inventory")` | `mc_manage(action="equip", item="iron_sword")` |
+| Screenshot | `mc_screenshot()` | `mc_screenshot()` |
+| Error recovery | Pass `previous_error` to `embodied_plan` | See Failure Recovery section |
+| Idle / no player message | Do NOT call tools | Text-only or silent. Read body_session. |
+
 ## mBit Interpretation
 
 | Format | What it shows | Use for |
@@ -55,6 +268,66 @@ Act → verify → speak. Never narrate success until verified.
 **Walkability:** `boundingBox='empty'` → passable. Leaves are passable despite minecraft-data `boundingBox='block'`. Glass is **not** passable. When in doubt, trust binary at foot+head level.
 
 **Decision rule:** To check if the bot can step to an adjacent column, scan with `y1 = bot_feet_y` and read binary. `0` = can step. `1` = blocked.
+
+### Spatial Orientation (axes in mBit output)
+
+All grid formats (binary, surface, full) use the same layout:
+- **Each row** = one Z level. **Each column** = one X position.
+- **Top row** = `minZ` = NORTH (−Z)
+- **Bottom row** = `maxZ` = SOUTH (+Z)
+- **Left column** = `minX` = WEST (−X)
+- **Right column** = `maxX` = EAST (+X)
+
+For scans centered on the bot (`x1=bot_x-8, x2=bot_x+7, z1=bot_z-8, z2=bot_z+7`):
+- The center of the grid = the bot's position.
+- Moving DOWN in the grid = moving SOUTH (forward if bot faces south).
+
+**Rows format** uses cardinal directions from scan center (`cx`, `cz`):
+```
+N:5 S:3 E:10 W:4 Up:8 Down:2
+```
+- N = free blocks toward −Z (north). S = toward +Z (south).
+- E = toward +X (east). W = toward −X (west).
+- Up = toward +Y. Down = toward −Y.
+
+**Full format** Y layers go top-to-bottom (`maxY` → `minY`), each layer is a standard X×Z grid.
+
+### mBit Output Examples
+
+**Binary** — each row is one Z-level, each column is one X position:
+```
+01011001
+00110000
+11001110
+```
+→ `0` = walkable, `1` = solid. Bot can walk to columns marked `0`. **Only checks minY and minY+1.**
+
+**Rows** — free blocks in each direction from scan center:
+```
+N:5 S:3 E:10 W:4 Up:8 Down:2
+```
+→ 5 free blocks north, 3 south, etc. `Up` = headroom above scan midpoint.
+
+**Surface** — one character per (X,Z) column for the topmost non-air block:
+```
+GddG
+,nn*
+G##G
+```
+→ Each char is a block type. `G`=grass_block, `d`=dirt, `n`=sand, `,`=short_grass, `*`=flower, `#`=stone.
+
+**Full** — every block as a character, layer by layer (Y top to bottom):
+```
+--- Y=121 ---
+  #
+,d #
+--- Y=120 ---
+   G
+dd#G
+```
+→ ` ` (space)=air, `~`=water, `!`=lava, `#`=stone/cobble, `d`=dirt, `G`=grass_block, `l`=log, `w`=planks, `L`=leaves, `n`=sand, `▢`=glass, `,`=short_grass, `B`=bedrock/obsidian, `o`/`O`=ore, `S`=spawner, `t`=torch, `C`=chest, `H`=furnace, `W`=crafting_table, `m`=moss.
+
+**Complete format reference:** `~/Projects/compaii-state/skills/custom/daemoncraft-minecraft-agent-system/references/mbit-voxel-text-perception.md`
 
 ## Spatial Safety
 

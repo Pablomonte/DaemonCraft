@@ -70,7 +70,65 @@ mBit grids appear in your `body_session` world state. Understanding them prevent
 
 **Walkability:** `boundingBox='empty'` → passable. Leaves are passable despite minecraft-data `boundingBox='block'`. Glass is **not** passable. When in doubt, trust binary at foot+head level.
 
-**Decision rule:** To check if you can step to an adjacent column, scan with `y1 = bot_feet_y` and read binary. `0` = can step. `1` = blocked.
+**Decision rule:** To check if the bot can step to an adjacent column, scan with `y1 = bot_feet_y` and read binary. `0` = can step. `1` = blocked.
+
+### Spatial Orientation (axes in mBit output)
+
+All grid formats (binary, surface, full) use the same layout:
+- **Each row** = one Z level. **Each column** = one X position.
+- **Top row** = `minZ` = NORTH (−Z)
+- **Bottom row** = `maxZ` = SOUTH (+Z)
+- **Left column** = `minX` = WEST (−X)
+- **Right column** = `maxX` = EAST (+X)
+
+For scans centered on the bot (`x1=bot_x-8, x2=bot_x+7, z1=bot_z-8, z2=bot_z+7`):
+- The center of the grid = the bot's position.
+- Moving DOWN in the grid = moving SOUTH (forward if bot faces south).
+
+**Rows format** uses cardinal directions from scan center (`cx`, `cz`):
+```
+N:5 S:3 E:10 W:4 Up:8 Down:2
+```
+- N = free blocks toward −Z (north). S = toward +Z (south).
+- E = toward +X (east). W = toward −X (west).
+- Up = toward +Y. Down = toward −Y.
+
+**Full format** Y layers go top-to-bottom (`maxY` → `minY`), each layer is a standard X×Z grid.
+
+### mBit Output Examples
+
+**Binary** — each row is one Z-level, each column is one X position:
+```
+01011001
+00110000
+11001110
+```
+→ `0` = walkable, `1` = solid. **Only checks minY and minY+1.**
+
+**Rows** — free blocks in each direction from scan center:
+```
+N:5 S:3 E:10 W:4 Up:8 Down:2
+```
+→ 5 free blocks north, 3 south, etc. `Up` = headroom above scan midpoint.
+
+**Surface** — one character per (X,Z) column for the topmost non-air block:
+```
+GddG
+,nn*
+G##G
+```
+→ Each char is a block type. `G`=grass_block, `d`=dirt, `n`=sand, `,`=short_grass, `*`=flower, `#`=stone.
+
+**Full** — every block as a character, layer by layer (Y top to bottom):
+```
+--- Y=121 ---
+  #
+,d #
+--- Y=120 ---
+   G
+dd#G
+```
+→ ` ` (space)=air, `~`=water, `!`=lava, `#`=stone/cobble, `d`=dirt, `G`=grass_block, `l`=log, `w`=planks, `L`=leaves, `n`=sand, `▢`=glass, `,`=short_grass, `B`=bedrock/obsidian, `o`/`O`=ore, `S`=spawner, `t`=torch, `C`=chest, `H`=furnace, `W`=crafting_table, `m`=moss.
 
 **When body_session shows `plan_goal`, you have an active plan executing.** The autonomous loop is running it step by step. Read the plan info from body_session so you know what's happening. When asked, tell the player the plan name and current step. Do NOT create a new plan if one is already executing.
 

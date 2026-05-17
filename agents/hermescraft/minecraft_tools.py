@@ -49,7 +49,7 @@ from typing import Any, Dict, Optional
 from tools.registry import registry, tool_error
 
 
-MC_API_URL = os.getenv("MC_API_URL", "http://localhost:3001")
+MC_API_URL = os.getenv("BOT_API_URL") or os.getenv("MC_API_URL", "http://localhost:3001")
 
 # Global cancel event — set by agent_loop.py when chat arrives during a turn
 _cancel_event: Optional[threading.Event] = None

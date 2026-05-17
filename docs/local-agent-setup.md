@@ -164,6 +164,47 @@ curl -s "http://localhost:3003/blocks?x1=560&x2=570&y1=119&y2=121&z1=-422&z2=-41
 
 ---
 
+## Step 7: Generate the Embodiment SOUL
+
+The agent needs a runtime embodiment rulebook at `~/.hermes/SOUL_daemoncraft.md`. This is where its Minecraft behavior, tool usage, and spatial safety rules live.
+
+### If the agent does not have one yet
+
+```bash
+cp ~/Projects/DaemonCraft/agents/SOUL-lab.md ~/.hermes/SOUL_daemoncraft.md
+```
+
+Then customize it with the agent's specific Minecraft username, API ports, and any personality tweaks.
+
+### If the agent already has one
+
+Merge any new template rules from `SOUL-lab.md` into the existing file. Do not overwrite personalized rules. Key sections to keep in sync:
+- Source of Truth
+- Control Path Selection
+- mBit Interpretation
+- Spatial Safety
+- Heartbeat / body_session discipline
+- World Thread Tool Discipline
+
+### Ensure SOUL.md references it (idempotent)
+
+The agent's main `SOUL.md` must know where its embodiment rules live. This line should exist **once**:
+
+```bash
+# Check if the reference already exists
+grep -q "SOUL_daemoncraft.md" ~/.hermes/SOUL.md && echo "Reference already exists" || {
+  # Add a dedicated Embodiment section before the closing
+  sed -i '/^## Closing/i \
+## Minecraft Embodiment\n\nWhen my consciousness projects into Minecraft through the DaemonCraft bridge, my embodied-behavior rules and spatial perception live in ~/.hermes/SOUL_daemoncraft.md. I must read this file when entering the world thread, as part of my re-entry protocol.\n' ~/.hermes/SOUL.md
+}
+```
+
+**Idempotency guarantee:** If the line `SOUL_daemoncraft.md` already appears anywhere in `SOUL.md`, the script does nothing. It will never append a duplicate.
+
+**Why this matters:** If you regenerate the cast (re-run the setup script), the agent's `SOUL.md` must not accumulate multiple identical references. The `grep -q` guard prevents that.
+
+---
+
 ## Key Differences from Cast Agents (Steve, gAndy)
 
 | Aspect | Cast Agent (Steve) | Local Agent (CompAII) |
