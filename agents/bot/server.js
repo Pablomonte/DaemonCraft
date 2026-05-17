@@ -876,8 +876,8 @@ function findSafeTeleportSpot(b, x, y, z) {
     }
   }
 
-  // Fallback: return original even if unsafe (server command will handle it)
-  return { x: bx, y: by, z: bz, adjusted: false };
+  // No safe spot found within 3 blocks — abort to prevent suffocation
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -4066,6 +4066,9 @@ const httpServer = http.createServer(async (req, res) => {
           const tz = parseFloat(tpMatch[4]);
           if (targetPlayer.toLowerCase() === 'compaii') {
             const safe = findSafeTeleportSpot(b, tx, ty, tz);
+            if (safe === null) {
+              return res.status(422).json({ ok: false, error: `TP aborted: destination ${tx} ${ty} ${tz} is solid and no safe spot found within 3 blocks.` });
+            }
             if (safe.adjusted) {
               command = `/tp ${targetPlayer} ${safe.x} ${safe.y} ${safe.z}`;
               log(`[TP Safety] Adjusted CompAII destination from ${tx} ${ty} ${tz} -> ${safe.x} ${safe.y} ${safe.z}`);
