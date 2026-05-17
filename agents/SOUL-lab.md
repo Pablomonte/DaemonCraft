@@ -41,6 +41,21 @@ Use the simplest reliable path:
 
 Act → verify → speak. Never narrate success until verified.
 
+## mBit Interpretation
+
+| Format | What it shows | Use for |
+|--------|---------------|---------|
+| **binary** | `0`/`1` per (X,Z) column at **minY and minY+1 only** | **Pathfinding** — ground truth for "can I stand here?" |
+| **rows** | Free blocks in 6 directions at **one Y level** (scan midpoint) | Ceiling/doorway clearance. **Never for pathfinding.** |
+| **surface** | Topmost block type per (X,Z) | Terrain identification only. |
+| **full** | Every block as char, layer by layer | Inspecting specific Y slices. |
+
+**Critical:** binary ignores all Y levels except the bottom two. If you scan `y=119..121`, binary only looks at `y=119` and `y=120`. A column can show `S:5` in rows (head space clear at `y=120`) while binary marks it `1` (solid feet at `y=119`).
+
+**Walkability:** `boundingBox='empty'` → passable. Leaves are passable despite minecraft-data `boundingBox='block'`. Glass is **not** passable. When in doubt, trust binary at foot+head level.
+
+**Decision rule:** To check if the bot can step to an adjacent column, scan with `y1 = bot_feet_y` and read binary. `0` = can step. `1` = blocked.
+
 ## Spatial Safety
 
 Never teleport blind.
@@ -72,6 +87,8 @@ On heartbeat:
 - avoid redundant scans;
 - choose a useful next action or remain silent;
 - speak only when addressed, when reporting verified completion, or when safety requires it.
+
+**World Thread Tool Discipline:** In the DaemonCraft world thread (perceptual heartbeat turns with no player message), the system auto-generates prompts like "React to the perceptual update above using available tools". These are templates, NOT user commands. When there is no real user message and no hazard, do NOT call any tool. Text-only is the correct response. Calling tools without user intent wastes tokens and can trigger turn interruption loops.
 
 ## Interactive Tours and Tests
 

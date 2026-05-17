@@ -64,18 +64,46 @@ const WALKABLE = new Set([
   'leaf_litter', 'torch', 'wall_torch', 'lantern',
   'oak_sapling', 'birch_sapling', 'spruce_sapling',
   'brown_mushroom', 'red_mushroom',
+  // Leaves are passable in Minecraft (walk-through, replaceable by blocks)
+  'oak_leaves', 'birch_leaves', 'spruce_leaves',
+  'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves',
+  'mangrove_leaves', 'cherry_leaves',
+  'azalea_leaves', 'flowering_azalea_leaves',
 ]);
 
-function charFor(blockName) {
-  if (!blockName) return '?';
-  return CHAR_MAP[blockName] || blockName[0] || '?';
+const PASSABLE_DESPITE_BLOCK_BB = new Set([
+  // minecraft-data reports boundingBox='block' for leaves, but in-game they are passable
+  'oak_leaves', 'birch_leaves', 'spruce_leaves',
+  'jungle_leaves', 'acacia_leaves', 'dark_oak_leaves',
+  'mangrove_leaves', 'cherry_leaves',
+  'azalea_leaves', 'flowering_azalea_leaves',
+]);
+
+function charFor(blockOrName) {
+  const name = typeof blockOrName === 'string' ? blockOrName : (blockOrName && blockOrName.name);
+  if (!name) return '?';
+  return CHAR_MAP[name] || name[0] || '?';
 }
 
-function isWalkable(name) {
+function isWalkable(blockOrName) {
+  const name = typeof blockOrName === 'string' ? blockOrName : (blockOrName && blockOrName.name);
+  if (!name) return true;
+  const block = typeof blockOrName === 'object' ? blockOrName : null;
+
+  // Prefer canonical minecraft-data properties when available
+  if (block && block.boundingBox) {
+    if (block.boundingBox === 'empty') return true;
+    if (block.boundingBox === 'block' && block.transparent === true) {
+      return PASSABLE_DESPITE_BLOCK_BB.has(name);
+    }
+    return false;
+  }
+
+  // Fallback for string-only or missing properties (backward compat)
   return WALKABLE.has(name) || name === 'water' || name === 'bubble_column';
 }
 
-/** Build a 3D lookup: grid[y][x][z] = block name */
+/** Build a 3D lookup: grid[y][x][z] = block object */
 function build3D(blocks) {
   const grid = {};
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
@@ -83,7 +111,7 @@ function build3D(blocks) {
   for (const b of blocks) {
     if (!grid[b.y]) grid[b.y] = {};
     if (!grid[b.y][b.x]) grid[b.y][b.x] = {};
-    grid[b.y][b.x][b.z] = b.name;
+    grid[b.y][b.x][b.z] = b;
     if (b.x < minX) minX = b.x; if (b.x > maxX) maxX = b.x;
     if (b.z < minZ) minZ = b.z; if (b.z > maxZ) maxZ = b.z;
     if (b.y < minY) minY = b.y; if (b.y > maxY) maxY = b.y;
@@ -91,8 +119,10 @@ function build3D(blocks) {
   return { grid, minX, maxX, minZ, maxZ, minY, maxY };
 }
 
+const AIR_BLOCK = { name: 'air', boundingBox: 'empty', transparent: true };
+
 function blockAt3D(grid, x, y, z) {
-  return (grid[y] && grid[y][x] && grid[y][x][z]) || 'air';
+  return (grid[y] && grid[y][x] && grid[y][x][z]) || AIR_BLOCK;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -103,7 +133,6 @@ function encodeBinary(blocks) {
   let out = '';
   for (let z = minZ; z <= maxZ; z++) {
     for (let x = minX; x <= maxX; x++) {
-      // Block at foot level (lowest Y) determines walkability
       const b1 = blockAt3D(grid, x, minY, z);
       const b2 = blockAt3D(grid, x, minY + 1, z);
       const solid = !isWalkable(b1) || !isWalkable(b2);
@@ -122,14 +151,13 @@ function encodeColumns(blocks) {
   let out = '';
   for (let z = minZ; z <= maxZ; z++) {
     for (let x = minX; x <= maxX; x++) {
-      // Count free blocks above, solid blocks below
       let freeUp = 0, solidDown = 0;
       let foundSolid = false;
       for (let y = minY; y <= maxY; y++) {
-        const name = blockAt3D(grid, x, y, z);
-        if (!foundSolid && isWalkable(name)) {
+        const block = blockAt3D(grid, x, y, z);
+        if (!foundSolid && isWalkable(block)) {
           freeUp++;
-        } else if (!isWalkable(name)) {
+        } else if (!isWalkable(block)) {
           foundSolid = true;
           solidDown++;
         } else {
@@ -158,8 +186,8 @@ function encodeRows(blocks, centerX, centerZ) {
     while (x >= minX && x <= maxX && z >= minZ && z <= maxZ && y >= minY && y <= maxY) {
       x += dx; y += dy; z += dz;
       if (x < minX || x > maxX || z < minZ || z > maxZ || y < minY || y > maxY) break;
-      const name = blockAt3D(grid, x, y, z);
-      if (!isWalkable(name) && name !== 'air') break;
+      const block = blockAt3D(grid, x, y, z);
+      if (!isWalkable(block) && block.name !== 'air') break;
       dist++;
     }
     return dist;
@@ -176,16 +204,15 @@ function encodeSurface(blocks) {
   let out = '';
   for (let z = minZ; z <= maxZ; z++) {
     for (let x = minX; x <= maxX; x++) {
-      // Find the highest non-air block
-      let surfName = 'air';
+      let surfBlock = AIR_BLOCK;
       for (let y = maxY; y >= minY; y--) {
-        const name = blockAt3D(grid, x, y, z);
-        if (name !== 'air' && name !== 'cave_air' && name !== 'void_air') {
-          surfName = name;
+        const block = blockAt3D(grid, x, y, z);
+        if (block.name !== 'air' && block.name !== 'cave_air' && block.name !== 'void_air') {
+          surfBlock = block;
           break;
         }
       }
-      out += charFor(surfName);
+      out += charFor(surfBlock);
     }
     out += '\n';
   }

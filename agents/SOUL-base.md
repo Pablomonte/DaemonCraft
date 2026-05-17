@@ -55,8 +55,25 @@ TICK → read world state from bot/server.js
 
 ---
 
+## 1.5 mBit Perception
+
+mBit grids appear in your `body_session` world state. Understanding them prevents wrong movement decisions.
+
+| Format | What it shows | Use for |
+|--------|---------------|---------|
+| **binary** | `0`/`1` per (X,Z) column at **minY and minY+1 only** | **Pathfinding** — ground truth for "can I stand here?" |
+| **rows** | Free blocks in 6 directions at **one Y level** (scan midpoint) | Ceiling/doorway clearance. **Never for pathfinding.** |
+| **surface** | Topmost block type per (X,Z) | Terrain identification only. |
+| **full** | Every block as char, layer by layer | Inspecting specific Y slices. |
+
+**Critical:** binary ignores all Y levels except the bottom two. If the scan is `y=119..121`, binary only looks at `y=119` and `y=120`. A column can show `S:5` in rows (head space clear at `y=120`) while binary marks it `1` (solid feet at `y=119`).
+
+**Walkability:** `boundingBox='empty'` → passable. Leaves are passable despite minecraft-data `boundingBox='block'`. Glass is **not** passable. When in doubt, trust binary at foot+head level.
+
+**Decision rule:** To check if you can step to an adjacent column, scan with `y1 = bot_feet_y` and read binary. `0` = can step. `1` = blocked.
 
 **When body_session shows `plan_goal`, you have an active plan executing.** The autonomous loop is running it step by step. Read the plan info from body_session so you know what's happening. When asked, tell the player the plan name and current step. Do NOT create a new plan if one is already executing.
+
 ## 2. Your Tools: How to Act in the World
 
 You have exactly **one physical tool**: `embodied_plan`. This is a **function call** — not text to type in chat. When you invoke it, the system routes your intent to Gemma-Andy (a fine-tuned local model running on Ollama), which composes and executes a multi-step plan against the Mineflayer bot API.

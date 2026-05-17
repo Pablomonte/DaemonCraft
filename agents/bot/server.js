@@ -58,7 +58,7 @@ import collectBlockPkg from 'mineflayer-collectblock';
 const collectBlock = collectBlockPkg.plugin;
 import minecraftData from 'minecraft-data';
 import { Vec3 } from 'vec3';
-import { encode as encodeMbit } from './lib/mbit.js';
+import { encode as encodeMbit, isWalkable } from './lib/mbit.js';
 import {
   CURRENT_CAST,
   buildKnownNames,
@@ -835,23 +835,26 @@ function ensureBot() {
   return bot;
 }
 
-/** Find nearest safe air block for teleport within 3-block radius.
- *  Returns adjusted coordinates if original spot (feet or head) is solid.
+/** Find nearest safe spot for teleport within 3-block radius.
+ *  Feet and head must be walkable; block below must be solid.
+ *  Returns adjusted coordinates if original spot is unsafe.
  */
 function findSafeTeleportSpot(b, x, y, z) {
   const bx = Math.floor(x);
   const by = Math.floor(y);
   const bz = Math.floor(z);
-  const isAir = (block) => block && (block.name === 'air' || block.name === 'cave_air');
 
-  // Original spot safe?
-  const feet = b.blockAt(new Vec3(bx, by, bz));
-  const head = b.blockAt(new Vec3(bx, by + 1, bz));
-  if (isAir(feet) && isAir(head)) {
+  function spotOk(fx, fy, fz) {
+    const feet = b.blockAt(new Vec3(fx, fy, fz));
+    const head = b.blockAt(new Vec3(fx, fy + 1, fz));
+    const ground = b.blockAt(new Vec3(fx, fy - 1, fz));
+    return isWalkable(feet?.name || 'air') && isWalkable(head?.name || 'air') && !isWalkable(ground?.name || 'air');
+  }
+
+  if (spotOk(bx, by, bz)) {
     return { x: bx, y: by, z: bz, adjusted: false };
   }
 
-  // Search expanding shell sorted by Manhattan distance
   const candidates = [];
   for (let dx = -3; dx <= 3; dx++) {
     for (let dy = -3; dy <= 3; dy++) {
@@ -863,20 +866,17 @@ function findSafeTeleportSpot(b, x, y, z) {
       }
     }
   }
-  candidates.sort((a, b) => a.dist - b.dist);
+  candidates.sort((a, c) => a.dist - c.dist);
 
   for (const c of candidates) {
     const tx = bx + c.dx;
     const ty = by + c.dy;
     const tz = bz + c.dz;
-    const f = b.blockAt(new Vec3(tx, ty, tz));
-    const h = b.blockAt(new Vec3(tx, ty + 1, tz));
-    if (isAir(f) && isAir(h)) {
+    if (spotOk(tx, ty, tz)) {
       return { x: tx, y: ty, z: tz, adjusted: true };
     }
   }
 
-  // No safe spot found within 3 blocks — abort to prevent suffocation
   return null;
 }
 
@@ -3856,13 +3856,37 @@ const httpServer = http.createServer(async (req, res) => {
           for (let z = minZ; z <= maxZ; z++) {
             for (let x = minX; x <= maxX; x++) {
               const block = b.blockAt(new Vec3(x, y, z));
+              const name = block ? block.name : 'unknown';
+              const info = mcData ? mcData.blocksByName[name] : null;
               blocks.push({
                 x,
                 y,
                 z,
-                name: block ? block.name : 'unknown',
+                name,
+                boundingBox: info ? info.boundingBox : (block && block.boundingBox) || 'block',
+                transparent: info ? info.transparent : (block && block.transparent) || false,
               });
             }
+          }
+        }
+        // Collect entities within the scanned volume
+        const entities = [];
+        for (const ent of Object.values(b.entities)) {
+          if (!ent.position) continue;
+          const ex = Math.floor(ent.position.x);
+          const ey = Math.floor(ent.position.y);
+          const ez = Math.floor(ent.position.z);
+          if (ex >= minX && ex <= maxX && ey >= minY && ey <= maxY && ez >= minZ && ez <= maxZ) {
+            entities.push({
+              id: ent.id,
+              type: ent.type || ent.name || 'unknown',
+              name: ent.name || ent.username || ent.displayName || null,
+              username: ent.username || null,
+              x: ent.position.x,
+              y: ent.position.y,
+              z: ent.position.z,
+              health: ent.health || null,
+            });
           }
         }
         const elapsed = Date.now() - t0;
@@ -3873,12 +3897,12 @@ const httpServer = http.createServer(async (req, res) => {
             const centerX = parseInt(url.searchParams.get('cx')) || undefined;
             const centerZ = parseInt(url.searchParams.get('cz')) || undefined;
             const text = encodeMbit(blocks, format, centerX, centerZ);
-            return respond(res, 200, { ok: true, data: { format, text, count: blocks.length, elapsed_ms: elapsed } });
+            return respond(res, 200, { ok: true, data: { format, text, count: blocks.length, entities, elapsed_ms: elapsed } });
           } catch (err) {
             return respond(res, 400, { ok: false, error: `mBit encoding error: ${err.message}` });
           }
         }
-        return respond(res, 200, { ok: true, data: { blocks, count: blocks.length, elapsed_ms: elapsed } });
+        return respond(res, 200, { ok: true, data: { blocks, entities, count: blocks.length, elapsed_ms: elapsed } });
       }
 
       // Serve TTS audio files generated by the gateway adapter
@@ -4057,24 +4081,34 @@ const httpServer = http.createServer(async (req, res) => {
         }
         const b = ensureBot();
 
-        // TP safety check: scan destination via mBit before teleporting CompAII
-        const tpMatch = command.match(/^\/tp\s+(\S+)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*$/);
+        // TP safety check: scan destination before teleporting this bot
+        let tpMatch = command.match(/^\/tp\s+(\S+)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*$/);
+        let targetPlayer = null;
+        let tx, ty, tz;
         if (tpMatch) {
-          const targetPlayer = tpMatch[1];
-          const tx = parseFloat(tpMatch[2]);
-          const ty = parseFloat(tpMatch[3]);
-          const tz = parseFloat(tpMatch[4]);
-          if (targetPlayer.toLowerCase() === 'compaii') {
+          targetPlayer = tpMatch[1];
+          tx = parseFloat(tpMatch[2]);
+          ty = parseFloat(tpMatch[3]);
+          tz = parseFloat(tpMatch[4]);
+        } else {
+          const selfTpMatch = command.match(/^\/tp\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*$/);
+          if (selfTpMatch) {
+            targetPlayer = b.username;
+            tx = parseFloat(selfTpMatch[1]);
+            ty = parseFloat(selfTpMatch[2]);
+            tz = parseFloat(selfTpMatch[3]);
+          }
+        }
+        if (targetPlayer && targetPlayer.toLowerCase() === b.username.toLowerCase()) {
             const safe = findSafeTeleportSpot(b, tx, ty, tz);
             if (safe === null) {
               return res.status(422).json({ ok: false, error: `TP aborted: destination ${tx} ${ty} ${tz} is solid and no safe spot found within 3 blocks.` });
             }
             if (safe.adjusted) {
               command = `/tp ${targetPlayer} ${safe.x} ${safe.y} ${safe.z}`;
-              log(`[TP Safety] Adjusted CompAII destination from ${tx} ${ty} ${tz} -> ${safe.x} ${safe.y} ${safe.z}`);
+              log(`[TP Safety] Adjusted ${b.username} destination from ${tx} ${ty} ${tz} -> ${safe.x} ${safe.y} ${safe.z}`);
             }
           }
-        }
 
         const responses = [];
         const onMessage = (msg) => {
@@ -4124,26 +4158,35 @@ const httpServer = http.createServer(async (req, res) => {
         }
 
         // TP safety: intercept /tp commands sent via chat/send (used by mc_command tool)
-        const tpMatchChat = message.match(/^\/tp\s+(\S+)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*$/);
+        const b = ensureBot();
+        let tpMatchChat = message.match(/^\/tp\s+(\S+)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*$/);
+        let chatTargetPlayer = null;
+        let chtx, chty, chtz;
         if (tpMatchChat) {
-          const b = ensureBot();
-          const chatTargetPlayer = tpMatchChat[1];
-          if (chatTargetPlayer.toLowerCase() === 'compaii') {
-            const chtx = parseFloat(tpMatchChat[2]);
-            const chty = parseFloat(tpMatchChat[3]);
-            const chtz = parseFloat(tpMatchChat[4]);
-            const safeChat = findSafeTeleportSpot(b, chtx, chty, chtz);
-            if (safeChat === null) {
-              return respond(res, 422, { ok: false, error: `TP aborted: destination ${chtx} ${chty} ${chtz} is solid and no safe spot found within 3 blocks.` });
-            }
-            if (safeChat.adjusted) {
-              log(`[TP Safety chat/send] Adjusted CompAII destination from ${chtx} ${chty} ${chtz} -> ${safeChat.x} ${safeChat.y} ${safeChat.z}`);
-              body.message = `/tp ${chatTargetPlayer} ${safeChat.x} ${safeChat.y} ${safeChat.z}`;
-            }
+          chatTargetPlayer = tpMatchChat[1];
+          chtx = parseFloat(tpMatchChat[2]);
+          chty = parseFloat(tpMatchChat[3]);
+          chtz = parseFloat(tpMatchChat[4]);
+        } else {
+          const selfTpMatchChat = message.match(/^\/tp\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s*$/);
+          if (selfTpMatchChat) {
+            chatTargetPlayer = b.username;
+            chtx = parseFloat(selfTpMatchChat[1]);
+            chty = parseFloat(selfTpMatchChat[2]);
+            chtz = parseFloat(selfTpMatchChat[3]);
+          }
+        }
+        if (chatTargetPlayer && chatTargetPlayer.toLowerCase() === b.username.toLowerCase()) {
+          const safeChat = findSafeTeleportSpot(b, chtx, chty, chtz);
+          if (safeChat === null) {
+            return respond(res, 422, { ok: false, error: `TP aborted: destination ${chtx} ${chty} ${chtz} is solid and no safe spot found within 3 blocks.` });
+          }
+          if (safeChat.adjusted) {
+            log(`[TP Safety chat/send] Adjusted ${b.username} destination from ${chtx} ${chty} ${chtz} -> ${safeChat.x} ${safeChat.y} ${safeChat.z}`);
+            body.message = `/tp ${chatTargetPlayer} ${safeChat.x} ${safeChat.y} ${safeChat.z}`;
           }
         }
 
-        const b = ensureBot();
         const botName = b.username;
 
         if (sender && typeof sender === 'string' && sender.toLowerCase() !== botName.toLowerCase()) {

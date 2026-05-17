@@ -220,100 +220,91 @@ async function refresh() {
   const t0 = performance.now();
 
   try {
-    const params = new URLSearchParams({ x1,x2, z1,z2, y1, y2, format:'full' });
+    const params = new URLSearchParams({ x1, x2, z1, z2, y1, y2 });
     const resp = await fetch(BOT_URL + '/blocks?' + params).then(r => r.json());
     if (!resp.ok) { document.getElementById('info').textContent = resp.error; return; }
-    
-    const text = resp.data.text;
-    if (seq !== refreshSeq) return; // a newer refresh is in flight or already applied
-    const renderKey = `${currentMode}|${x1},${y1},${z1}|${x2},${y2},${z2}|${text}`;
-    if (renderKey === lastRenderKey) {
-      // No world/mode/bounds delta. Keep the existing scene intact.
-      document.getElementById('info').textContent =
-        `${currentMode} | no delta | ${resp.data.count} blocks | API ${resp.data.elapsed_ms}ms | (${x1},${y1},${z1})→(${x2},${y2},${z2})`;
-      return;
-    }
-    lastText = text;
-    lastRenderKey = renderKey;
-    clearObjects();
-    const count = resp.data.count;
+
+    if (seq !== refreshSeq) return;
+    const blocks = resp.data.blocks || [];
+    const entities = resp.data.entities || [];
+    const count = blocks.length;
     const apiMs = resp.data.elapsed_ms;
-    const layers = {};
-    const sections = text.split('--- Y=');
-    for (let si = 1; si < sections.length; si++) {
-      const sec = sections[si];
-      const nl = sec.indexOf('\n');
-      const y = parseInt(sec.slice(0, nl).trim());
-      if (isNaN(y)) continue;
-      const rows = sec.slice(nl + 1).split('\n').filter(r => r.length > 0);
-      const grid = rows.map(r => r.split(''));
-      layers[y] = grid;
-    }
 
-    // Render each non-empty cell
+    clearObjects();
     let rendered = 0;
-    const sizeX = r * 2 + 1;
     const centerX = cx, centerZ = cz;
-    
-    for (const [yStr, grid] of Object.entries(layers)) {
-      const y = parseInt(yStr);
-      for (let ri = 0; ri < grid.length; ri++) {
-        for (let ci = 0; ci < (grid[ri]?.length || 0); ci++) {
-          const ch = grid[ri][ci];
-          if (!ch || ch === ' ') continue;
-          const wx = x1 + ci + 0.5 - centerX;
-          const wy = y + 0.5 - (y1 + y2) / 2;
-          const wz = z1 + ri + 0.5 - centerZ;
 
-          if (currentMode === 'char' || currentMode === 'both') {
-            const canvas = document.createElement('canvas');
-            canvas.width = 32; canvas.height = 32;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#22d3ee';
-            ctx.font = 'bold 24px JetBrains Mono';
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText(ch, 16, 16);
-            const tex = new THREE.CanvasTexture(canvas);
-            tex.minFilter = THREE.LinearFilter;
-            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: true, depthWrite: false });
-            const sp = new THREE.Sprite(mat);
-            sp.position.set(wx, wy, wz);
-            sp.scale.set(0.65, 0.65, 0.65);
-            scene.add(sp); objects.push(sp);
-            rendered++;
-          }
+    for (const block of blocks) {
+      if (block.name === 'air' || block.name === 'cave_air' || block.name === 'void_air') continue;
+      const wx = block.x + 0.5 - centerX;
+      const wy = block.y + 0.5 - (y1 + y2) / 2;
+      const wz = block.z + 0.5 - centerZ;
+      const ch = charFor(block.name);
+      const isEmptyBB = block.boundingBox === 'empty';
 
-          if (currentMode === 'block' || currentMode === 'both' || currentMode === 'wire') {
-            const name = Object.entries(CHAR_MAP).find(([n, c]) => c === ch)?.[0] || 'default';
-            const color = colorFor(name);
-            if (color !== '#00000000') {
-              // Use full 1×1×1 voxel cubes so adjacent cells touch like Minecraft blocks.
-              // The earlier 0.75 size made the visualizer look like separated floating cubes.
-              const geo = new THREE.BoxGeometry(1, 1, 1);
-              const opacity = currentMode === 'both' ? 0.5 : currentMode === 'wire' ? 0.3 : 0.85;
-              const mat = new THREE.MeshStandardMaterial({ color, transparent: true, opacity });
-              const mesh = new THREE.Mesh(geo, mat);
-              mesh.position.set(wx, wy, wz);
-              scene.add(mesh); objects.push(mesh);
-              
-              // Wireframe edges for wire mode
-              if (currentMode === 'wire') {
-                const edgeGeo = new THREE.EdgesGeometry(geo);
-                const edgeMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.7 });
-                const wireframe = new THREE.LineSegments(edgeGeo, edgeMat);
-                wireframe.position.copy(mesh.position);
-                scene.add(wireframe); objects.push(wireframe);
-              }
-              rendered++;
-            }
+      if (currentMode === 'char' || currentMode === 'both') {
+        const canvas = document.createElement('canvas');
+        canvas.width = 32; canvas.height = 32;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#22d3ee';
+        ctx.font = 'bold 24px JetBrains Mono';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(ch, 16, 16);
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.minFilter = THREE.LinearFilter;
+        const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: true, depthWrite: false });
+        const sp = new THREE.Sprite(mat);
+        sp.position.set(wx, wy, wz);
+        sp.scale.set(0.65, 0.65, 0.65);
+        scene.add(sp); objects.push(sp);
+        rendered++;
+      }
+
+      if (currentMode === 'block' || currentMode === 'both' || currentMode === 'wire') {
+        const color = colorFor(block.name);
+        if (color !== '#00000000') {
+          let geo;
+          if (isEmptyBB) {
+            // Small cube for plants, torches, leaf_litter, etc.
+            geo = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+          } else {
+            geo = new THREE.BoxGeometry(1, 1, 1);
           }
+          const opacity = currentMode === 'both' ? 0.5 : currentMode === 'wire' ? 0.3 : 0.85;
+          const mat = new THREE.MeshStandardMaterial({ color, transparent: true, opacity });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(wx, wy, wz);
+          scene.add(mesh); objects.push(mesh);
+
+          if (currentMode === 'wire') {
+            const edgeGeo = new THREE.EdgesGeometry(geo);
+            const edgeMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.7 });
+            const wireframe = new THREE.LineSegments(edgeGeo, edgeMat);
+            wireframe.position.copy(mesh.position);
+            scene.add(wireframe); objects.push(wireframe);
+          }
+          rendered++;
         }
       }
     }
 
+    // Render entities
+    for (const ent of entities) {
+      const wx = ent.x - centerX;
+      const wy = ent.y - (y1 + y2) / 2;
+      const wz = ent.z - centerZ;
+      const entColor = ent.type === 'player' ? '#ff5555' : (ent.type === 'mob' ? '#ff8800' : '#ffcc00');
+      const entGeo = new THREE.SphereGeometry(0.35, 16, 16);
+      const entMat = new THREE.MeshStandardMaterial({ color: entColor, transparent: true, opacity: 0.9 });
+      const entMesh = new THREE.Mesh(entGeo, entMat);
+      entMesh.position.set(wx, wy, wz);
+      scene.add(entMesh); objects.push(entMesh);
+      rendered++;
+    }
+
     const renderMs = Math.round(performance.now() - t0);
     document.getElementById('info').textContent =
-      `${currentMode} | ${count} blocks | ${rendered} rendered | API ${apiMs}ms | total ${renderMs}ms | (${x1},${y1},${z1})→(${x2},${y2},${z2})`;
+      `${currentMode} | ${count} blocks | ${entities.length} entities | ${rendered} rendered | API ${apiMs}ms | total ${renderMs}ms | (${x1},${y1},${z1})→(${x2},${y2},${z2})`;
 
     if (!document.getElementById('alignCam')?.checked) {
       controls.target.set(0, 0, 0);
