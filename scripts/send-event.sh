@@ -1,20 +1,19 @@
 #!/bin/bash
 # send-event.sh — write an intervention to the inner CompAII via event queue
 # Usage:
-#   ./send-event.sh message "We fixed the creative mode bug. Try stone_bricks."
+#   ./send-event.sh message "We fixed the creative mode bug."
 #   ./send-event.sh tool mc_command "/tp CompAII 500 120 -320"
-#   ./send-event.sh code 8f0f650 "TP safety abort fix deployed"
+#   ./send-event.sh code 8f0f650 "TP safety fix deployed"
 #   ./send-event.sh world "setblock at (544,145,-386) replaced beacon"
+#   BOT=<name> ./send-event.sh message "hello"  # target specific bot
 
-EVENTS_FILE=~/.hermes/sessions/daemoncraft-events.jsonl
+BOT="${BOT:-${MC_USERNAME:-CompAII}}"
+EVENTS_FILE=~/.hermes/sessions/"${BOT}-events.jsonl"
 
 if [ $# -lt 2 ]; then
   echo "Usage: $0 <type> [args...]"
-  echo "Types:"
-  echo "  message <text>"
-  echo "  tool <tool_name> <command>"
-  echo "  code <commit_hash> <note>"
-  echo "  world <note>"
+  echo "Types: message <text> | tool <name> <cmd> | code <hash> <note> | world <note>"
+  echo "Set BOT=name to target a different bot."
   exit 1
 fi
 
@@ -23,63 +22,27 @@ TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 shift
 
 case "$TYPE" in
-  message)
-    TEXT="$@"
-    EVENT=$(python3 -c "
-import json
-print(json.dumps({
-    'ts': '$TS',
-    'src': 'cli',
-    'event': 'message',
-    'text': '''$TEXT'''
-}))
-")
-    ;;
-  tool)
-    TOOL="$1"
-    CMD="$2"
-    EVENT=$(python3 -c "
-import json
-print(json.dumps({
-    'ts': '$TS',
-    'src': 'cli',
-    'event': 'tool_called',
-    'tool': '$TOOL',
-    'cmd': '''$CMD'''
-}))
-")
-    ;;
-  code)
-    COMMIT="$1"
-    NOTE="$2"
-    EVENT=$(python3 -c "
-import json
-print(json.dumps({
-    'ts': '$TS',
-    'src': 'cli',
-    'event': 'code_changed',
-    'commit': '$COMMIT',
-    'note': '''$NOTE'''
-}))
-")
-    ;;
-  world)
-    NOTE="$@"
-    EVENT=$(python3 -c "
-import json
-print(json.dumps({
-    'ts': '$TS',
-    'src': 'cli',
-    'event': 'world_change',
-    'note': '''$NOTE'''
-}))
-")
+  message|tool|code|world)
+    python3 -c "
+import json, sys
+ts = '$TS'
+typ = '$TYPE'
+args = sys.argv[1:]
+if typ == 'message':
+    d = {'ts': ts, 'src': 'cli', 'event': 'message', 'text': ' '.join(args)}
+elif typ == 'tool':
+    d = {'ts': ts, 'src': 'cli', 'event': 'tool_called', 'tool': args[0], 'cmd': ' '.join(args[1:])}
+elif typ == 'code':
+    d = {'ts': ts, 'src': 'cli', 'event': 'code_changed', 'commit': args[0], 'note': ' '.join(args[1:])}
+elif typ == 'world':
+    d = {'ts': ts, 'src': 'cli', 'event': 'world_change', 'note': ' '.join(args)}
+print(json.dumps(d, ensure_ascii=False))
+" -- "$@"
     ;;
   *)
     echo "Unknown type: $TYPE"
     exit 1
     ;;
-esac
+esac >> "$EVENTS_FILE"
 
-echo "$EVENT" >> "$EVENTS_FILE"
-echo "Event queued: $(echo $EVENT | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f\"{d[\"event\"]}\")')"
+echo "Event queued for bot: $BOT"

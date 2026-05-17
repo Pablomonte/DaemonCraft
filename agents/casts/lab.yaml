@@ -5,6 +5,7 @@
 name: lab
 description: Laboratory mode — CompAII with bot + optional agent_loop for debugging
 mode: laboratory
+soul_file: SOUL-lab.md
 
 agents:
   - name: CompAII

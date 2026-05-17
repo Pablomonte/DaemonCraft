@@ -1,9 +1,11 @@
 #!/bin/bash
 # watch-stream.sh — observe the live bot context stream
-# Usage: ./watch-stream.sh [interval]
+# Usage: ./watch-stream.sh [bot_name] [interval]
+# Default bot_name from MC_USERNAME env or "CompAII"
 
-INTERVAL=${1:-5}
-STREAM=~/.hermes/sessions/daemoncraft-stream.json
+BOT="${1:-${MC_USERNAME:-CompAII}}"
+INTERVAL=${2:-5}
+STREAM=~/.hermes/sessions/"${BOT}-stream.json"
 
 watch -n "$INTERVAL" "cat $STREAM 2>/dev/null | python3 -c '
 import sys, json
@@ -22,5 +24,5 @@ try:
     if errs: print(f\"Errors: {len(errs)}\")
     ev = d.get(\"events_consumed\", 0)
     if ev: print(f\"Events consumed: {ev}\")
-except: print(\"Stream not available yet...\")
+except: print(\"Stream not available yet... (bot: ${BOT})\")
 '"

@@ -168,12 +168,13 @@ def fetch_bot_inventory() -> dict:
 # ══════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 _SESSION_DIR = Path.home() / ".hermes" / "sessions"
-_STREAM_FILE = _SESSION_DIR / "daemoncraft-stream.json"
-_EVENTS_FILE = _SESSION_DIR / "daemoncraft-events.jsonl"
-_EVENTS_PROCESSING = _SESSION_DIR / "daemoncraft-events.processing"
-_STREAM_TMP = _SESSION_DIR / "daemoncraft-stream.tmp"
-
 _SESSION_DIR.mkdir(parents=True, exist_ok=True)
+
+# Per-bot stream and event files — derived from MC_USERNAME env var
+_STREAM_FILE = _SESSION_DIR / f"{BOT_USERNAME}-stream.json"
+_STREAM_TMP = _SESSION_DIR / f"{BOT_USERNAME}-stream.tmp"
+_EVENTS_FILE = _SESSION_DIR / f"{BOT_USERNAME}-events.jsonl"
+_EVENTS_PROCESSING = _SESSION_DIR / f"{BOT_USERNAME}-events.processing"
 
 
 def export_context_stream(status: dict, nearby: dict, inventory: dict,

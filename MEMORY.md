@@ -1407,3 +1407,10 @@ MC_USERNAME=CompAII
 ### Next Session Priority
 - Test loops: use Mariano/Fede experiment methodology to validate tool access and loop integrity.
 - Dashboard unification card: `t_e13dbc90`.
+
+## DaemonCraft SOUL parity notes
+
+- CompAII's DaemonCraft embodiment module lives at `~/.hermes/SOUL_daemoncraft.md`.
+- The corresponding lab/local-agent template lives at `agents/SOUL-lab.md` and is referenced by `agents/casts/lab.yaml`.
+- Universal bot behavior improvements belong in `agents/SOUL-base.md`; lab/local-only rules belong in `agents/SOUL-lab.md`; CompAII-only identity belongs in `~/.hermes/SOUL_daemoncraft.md`.
+- Runtime-only SOUL edits are regressions. Keep runtime/module/template parity when improving embodied behavior.
